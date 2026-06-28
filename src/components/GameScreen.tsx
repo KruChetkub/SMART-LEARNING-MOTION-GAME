@@ -114,7 +114,8 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
   const hoveredGoHome = hoverState.goHome
 
   // Feedback states
-  const [feedback, setFeedback] = useState<{ type: 'correct' | 'incorrect'; index: number } | null>(null)
+  const [feedback, setFeedback] = useState<{ type: 'correct' | 'incorrect'; index: number; questionIdx: number } | null>(null)
+  const activeFeedback = feedback && feedback.questionIdx === currentIdx ? feedback : null
   const [comboPop, setComboPop] = useState(false)
   const [speedPop, setSpeedPop] = useState(false)
   const [scorePop, setScorePop] = useState<string | null>(null)
@@ -144,7 +145,7 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
   // Check finger cursor position collisions with choice buttons and start button
   // All 4 hover states are batched into a single setHoverState call → single React re-render per cursor frame
   useEffect(() => {
-    if (feedback !== null) {
+    if (activeFeedback !== null) {
       if (cursorRef.current) cursorRef.current.style.opacity = '0'
       setHoverState({ choiceIndex: null, start: false, playAgain: false, goHome: false })
       lastCoordsRef.current = null
@@ -212,7 +213,7 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
       playAgain: activeHoverPlayAgain,
       goHome: activeHoverGoHome
     })
-  }, [cursor, feedback])
+  }, [cursor, activeFeedback])
 
   const handleSelectAnswerRef = useRef<((choiceIdx: number) => void) | null>(null)
   // timeLeftRef: tracks actual countdown value via ref (not state) to avoid React 18 concurrent mode issues
@@ -233,7 +234,7 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
 
   // Selection progress logic (guarded by gameState === 'playing')
   useEffect(() => {
-    if (gameState !== 'playing' || feedback !== null) {
+    if (gameState !== 'playing' || activeFeedback !== null) {
       setHoverProgress(0)
       return
     }
@@ -261,7 +262,7 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
     }, intervalTime)
 
     return () => clearInterval(interval)
-  }, [hoveredChoiceIndex, gameState, feedback])
+  }, [hoveredChoiceIndex, gameState, activeFeedback])
 
   // Start game hover selection progress logic (guarded by gameState === 'ready')
   useEffect(() => {
@@ -574,7 +575,7 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
   }, [currentIdx, gameState, isResultScreen, timeLimit])  // isResultScreen stops the timer immediately on game end
 
   const handleSelectAnswer = (choiceIdx: number) => {
-    if (feedback !== null) return         // already showing feedback
+    if (activeFeedback !== null) return         // already showing feedback
     if (!activeQuestion) return           // safety
     if (questionAnsweredRef.current) return  // timer already fired — prevent double-call
     questionAnsweredRef.current = true    // lock immediately to block any concurrent calls
@@ -623,7 +624,8 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
     // Visual triggers
     setFeedback({
       type: isCorrect ? 'correct' : 'incorrect',
-      index: choiceIdx
+      index: choiceIdx,
+      questionIdx: currentIdx
     })
     
     if (isCorrect) {
@@ -689,17 +691,28 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
     }, 1500) // Delay to show correctness feedback
   }
 
+  const getCorrectAnswerIndex = () => {
+    if (!activeQuestion) return -1
+    if (activeQuestion.correctHash !== undefined && activeQuestion.salt !== undefined) {
+      return activeQuestion.choices.findIndex(choice => 
+        djb2Hash(choice + activeQuestion.salt) === activeQuestion.correctHash
+      )
+    }
+    return activeQuestion.answerIndex !== undefined ? activeQuestion.answerIndex : -1
+  }
+
   const getChoiceLabel = (index: number) => {
     return ['A', 'B', 'C', 'D'][index]
   }
 
   const getChoiceColorClass = (index: number) => {
     if (!activeQuestion) return ''
-    if (feedback !== null) {
-      if (index === activeQuestion.answerIndex) {
+    if (activeFeedback !== null) {
+      const correctIdx = getCorrectAnswerIndex()
+      if (index === correctIdx) {
         return 'border-success bg-success/20 text-white' // Always show correct answer in green
       }
-      if (feedback.index === index && feedback.type === 'incorrect') {
+      if (activeFeedback.index === index && activeFeedback.type === 'incorrect') {
         return 'border-danger bg-danger/20 text-white' // Show user's incorrect choice in red
       }
       return 'border-slate-800/40 bg-slate-900/20 text-slate-500 opacity-60'
@@ -1036,14 +1049,14 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
                   {/* Dotted target box */}
                   <div 
                     className={`min-w-[6rem] sm:min-w-[7rem] w-auto h-24 sm:h-28 px-4 sm:px-6 rounded-2xl border-4 border-dashed transition-all flex flex-col items-center justify-center relative overflow-hidden ${
-                      hoveredChoiceIndex !== null && feedback === null
+                      hoveredChoiceIndex !== null && activeFeedback === null
                         ? 'border-secondary/80 bg-secondary/15 scale-105 animate-pulse' 
                         : 'border-slate-600 bg-slate-900/40'
                     }`}
                   >
-                    {feedback !== null ? (
+                    {activeFeedback !== null ? (
                       <span className="font-display font-extrabold text-2xl sm:text-3xl text-white whitespace-nowrap">
-                        {feedback.index === -1 ? '⏰' : activeQuestion.choices[feedback.index]}
+                        {activeFeedback.index === -1 ? '⏰' : activeQuestion.choices[activeFeedback.index]}
                       </span>
                     ) : hoveredChoiceIndex !== null ? (
                       <div className="flex flex-col items-center justify-center w-full px-1">
@@ -1068,14 +1081,14 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
                     {/* Dotted target box */}
                     <div 
                       className={`min-w-[6rem] sm:min-w-[7rem] w-auto h-24 sm:h-28 px-4 sm:px-6 rounded-2xl border-4 border-dashed transition-all flex flex-col items-center justify-center relative overflow-hidden ${
-                        hoveredChoiceIndex !== null && feedback === null
+                        hoveredChoiceIndex !== null && activeFeedback === null
                           ? 'border-secondary/80 bg-secondary/15 scale-105 animate-pulse' 
                           : 'border-slate-650 bg-slate-900/40'
                       }`}
                     >
-                      {feedback !== null ? (
+                      {activeFeedback !== null ? (
                         <span className="font-display font-extrabold text-2xl sm:text-3xl text-white whitespace-nowrap">
-                          {feedback.index === -1 ? '⏰' : activeQuestion.choices[feedback.index]}
+                          {activeFeedback.index === -1 ? '⏰' : activeQuestion.choices[activeFeedback.index]}
                         </span>
                       ) : hoveredChoiceIndex !== null ? (
                         <div className="flex flex-col items-center justify-center w-full px-1">
@@ -1160,22 +1173,22 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
                 <button
                   key={idx}
                   data-choice-idx={idx}
-                  disabled={feedback !== null}
-                  onMouseEnter={() => feedback === null && setHoverState(prev => ({ ...prev, choiceIndex: idx }))}
-                  onMouseLeave={() => feedback === null && hoveredChoiceIndex === idx && setHoverState(prev => ({ ...prev, choiceIndex: null }))}
-                  onClick={() => feedback === null && handleSelectAnswer(idx)}
+                  disabled={activeFeedback !== null}
+                  onMouseEnter={() => activeFeedback === null && setHoverState(prev => ({ ...prev, choiceIndex: idx }))}
+                  onMouseLeave={() => activeFeedback === null && hoveredChoiceIndex === idx && setHoverState(prev => ({ ...prev, choiceIndex: null }))}
+                  onClick={() => activeFeedback === null && handleSelectAnswer(idx)}
                   className={`relative h-20 sm:h-32 px-2 sm:px-4 border rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all duration-200 select-none shadow-md overflow-hidden backdrop-blur-md bg-slate-900/80 ${getChoiceColorClass(idx)}`}
                 >
                   <span className="absolute top-1 left-1.5 sm:top-2.5 sm:left-3 text-[8px] sm:text-[10px] font-black text-slate-400 uppercase bg-slate-900/50 px-1 py-0.5 sm:px-1.5 sm:py-0.5 rounded border border-slate-700/20">
                     {getChoiceLabel(idx)}
                   </span>
 
-                  {feedback !== null && idx === activeQuestion.answerIndex && (
+                  {activeFeedback !== null && idx === getCorrectAnswerIndex() && (
                     <span className="absolute top-1 right-1.5 sm:top-2 sm:right-2 p-0.5 sm:p-1 rounded-full bg-success/20 text-success">
                       <Check className="w-3 h-3 sm:w-4 sm:h-4" />
                     </span>
                   )}
-                  {feedback !== null && feedback.index === idx && feedback.type === 'incorrect' && (
+                  {activeFeedback !== null && activeFeedback.index === idx && activeFeedback.type === 'incorrect' && (
                     <span className="absolute top-1 right-1.5 sm:top-2 sm:right-2 p-0.5 sm:p-1 rounded-full bg-danger/20 text-danger">
                       <X className="w-3 h-3 sm:w-4 sm:h-4" />
                     </span>
@@ -1186,7 +1199,7 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
                   </span>
 
                   {/* Hover progress bar */}
-                  {hoveredChoiceIndex === idx && feedback === null && (
+                  {hoveredChoiceIndex === idx && activeFeedback === null && (
                     <div 
                       className="absolute bottom-0 left-0 h-1.5 bg-gradient-to-r from-secondary to-accent transition-all duration-75"
                       style={{ width: `${hoverProgress}%` }}
