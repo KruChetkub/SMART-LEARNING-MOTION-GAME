@@ -6,27 +6,14 @@ import { DashboardScreen } from './DashboardScreen'
 import * as XLSX from 'xlsx'
 
 interface AdminScreenProps {
+  subjects: any[]
+  grades: any[]
   onGoHome: () => void
   onRefreshSettings: () => void
 }
 
-const GRADE_LEVELS = [
-  { id: 'P1', label: 'ประถมศึกษาปีที่ 1 (ป.1)' },
-  { id: 'P2', label: 'ประถมศึกษาปีที่ 2 (ป.2)' },
-  { id: 'P3', label: 'ประถมศึกษาปีที่ 3 (ป.3)' },
-  { id: 'P4', label: 'ประถมศึกษาปีที่ 4 (ป.4)' },
-  { id: 'P5', label: 'ประถมศึกษาปีที่ 5 (ป.5)' },
-  { id: 'P6', label: 'ประถมศึกษาปีที่ 6 (ป.6)' },
-  { id: 'M1', label: 'มัธยมศึกษาปีที่ 1 (ม.1)' },
-  { id: 'M2', label: 'มัธยมศึกษาปีที่ 2 (ม.2)' },
-  { id: 'M3', label: 'มัธยมศึกษาปีที่ 3 (ม.3)' },
-  { id: 'M4', label: 'มัธยมศึกษาปีที่ 4 (ม.4)' },
-  { id: 'M5', label: 'มัธยมศึกษาปีที่ 5 (ม.5)' },
-  { id: 'M6', label: 'มัธยมศึกษาปีที่ 6 (ม.6)' }
-]
-
-export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSettings }) => {
-  const [activeTab, setActiveTab] = useState<'questions' | 'settings' | 'analytics'>('questions')
+export const AdminScreen: React.FC<AdminScreenProps> = ({ subjects, grades, onGoHome, onRefreshSettings }) => {
+  const [activeTab, setActiveTab] = useState<'questions' | 'settings' | 'analytics' | 'subjects_grades'>('questions')
   const [selectedSubject, setSelectedSubject] = useState<SubjectId>('Mathematics')
   const [selectedGradeLevel, setSelectedGradeLevel] = useState<string>('P1')
   const [settingsGradeLevel, setSettingsGradeLevel] = useState<string>('P1')
@@ -46,18 +33,158 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
   const [formError, setFormError] = useState<string | null>(null)
   const [formSuccess, setFormSuccess] = useState<string | null>(null)
 
-  // Game configuration states
-  const [mathTimeLimit, setMathTimeLimit] = useState<number>(15)
-  const [mathQuestions, setMathQuestions] = useState<number>(5)
-  const [thaiTimeLimit, setThaiTimeLimit] = useState<number>(15)
-  const [thaiQuestions, setThaiQuestions] = useState<number>(5)
-  const [englishTimeLimit, setEnglishTimeLimit] = useState<number>(15)
-  const [englishQuestions, setEnglishQuestions] = useState<number>(5)
+  // Game configuration states (dynamic lookup map)
+  const [dynamicSettings, setDynamicSettings] = useState<Record<string, { timeLimit: number; questionsPerGame: number }>>({})
   const [configSuccess, setConfigSuccess] = useState<string | null>(null)
   
   // Season Reset States
   const [resetLoading, setResetLoading] = useState<boolean>(false)
   const [resetSuccess, setResetSuccess] = useState<string | null>(null)
+
+  // Manage subjects and grades state variables
+  const [subFormId, setSubFormId] = useState('')
+  const [subFormName, setSubFormName] = useState('')
+  const [subFormNameEn, setSubFormNameEn] = useState('')
+  const [subFormIcon, setSubFormIcon] = useState('📚')
+  const [subFormColor, setSubFormColor] = useState('from-blue-500 to-cyan-500')
+  const [subFormCategories, setSubFormCategories] = useState('[{"id": "mixed", "label": "ผสมทุกหมวด", "labelEn": "Mixed"}]')
+  const [subFormAllowedGrades, setSubFormAllowedGrades] = useState<string[]>([])
+  const [subFormIsActive, setSubFormIsActive] = useState(true)
+
+  const [gradeFormId, setGradeFormId] = useState('')
+  const [gradeFormLabel, setGradeFormLabel] = useState('')
+  const [gradeFormName, setGradeFormName] = useState('')
+
+  const [subError, setSubError] = useState<string | null>(null)
+  const [subSuccess, setSubSuccess] = useState<string | null>(null)
+
+  const handleAddSubject = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubError(null)
+    setSubSuccess(null)
+
+    if (!subFormId || !subFormName || !subFormNameEn) {
+      setSubError('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (รหัสวิชา, ชื่อภาษาไทย, ชื่อภาษาอังกฤษ)')
+      return
+    }
+
+    try {
+      let parsedCategories = []
+      try {
+        parsedCategories = JSON.parse(subFormCategories)
+      } catch (err) {
+        setSubError('รูปแบบหมวดหมู่คำถาม (Categories JSON) ไม่ถูกต้อง ตัวอย่างที่ถูกต้อง: [{"id": "mixed", "label": "ผสม"}]')
+        return
+      }
+
+      const { error } = await supabase
+        .from('subjects')
+        .upsert({
+          id: subFormId.trim(),
+          name: subFormName.trim(),
+          name_en: subFormNameEn.trim(),
+          icon: subFormIcon.trim(),
+          color: subFormColor.trim(),
+          categories: parsedCategories,
+          allowed_grades: subFormAllowedGrades,
+          is_active: subFormIsActive
+        })
+
+      if (error) throw error
+
+      setSubSuccess('บันทึกข้อมูลวิชาเรียบร้อยแล้ว!')
+      onRefreshSettings()
+      
+      setSubFormId('')
+      setSubFormName('')
+      setSubFormNameEn('')
+      setSubFormIcon('📚')
+      setSubFormColor('from-blue-500 to-cyan-500')
+      setSubFormCategories('[{"id": "mixed", "label": "ผสมทุกหมวด", "labelEn": "Mixed"}]')
+    } catch (err: any) {
+      console.error(err)
+      setSubError('เกิดข้อผิดพลาดในการบันทึก: ' + err.message)
+    }
+  }
+
+  const handleDeleteSubject = async (subjectId: string) => {
+    if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบวิชา "${subjectId}"? การลบนี้จะไม่ลบข้อสอบที่มีอยู่ แต่หัวข้อวิชานี้จะหายไปจากตัวกรอง`)) {
+      return
+    }
+    setSubError(null)
+    setSubSuccess(null)
+
+    try {
+      const { error } = await supabase
+        .from('subjects')
+        .delete()
+        .eq('id', subjectId)
+
+      if (error) throw error
+
+      setSubSuccess('ลบวิชาเรียบร้อยแล้ว!')
+      onRefreshSettings()
+    } catch (err: any) {
+      console.error(err)
+      setSubError('เกิดข้อผิดพลาดในการลบ: ' + err.message)
+    }
+  }
+
+  const handleAddGrade = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubError(null)
+    setSubSuccess(null)
+
+    if (!gradeFormId || !gradeFormLabel || !gradeFormName) {
+      setSubError('กรุณากรอกข้อมูลระดับชั้นให้ครบถ้วน')
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('grades')
+        .upsert({
+          id: gradeFormId.trim(),
+          label: gradeFormLabel.trim(),
+          name: gradeFormName.trim()
+        })
+
+      if (error) throw error
+
+      setSubSuccess('บันทึกข้อมูลระดับชั้นเรียนเรียบร้อยแล้ว!')
+      onRefreshSettings()
+
+      setGradeFormId('')
+      setGradeFormLabel('')
+      setGradeFormName('')
+    } catch (err: any) {
+      console.error(err)
+      setSubError('เกิดข้อผิดพลาดในการบันทึกระดับชั้น: ' + err.message)
+    }
+  }
+
+  const handleDeleteGrade = async (gradeId: string) => {
+    if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบระดับชั้น "${gradeId}"?`)) {
+      return
+    }
+    setSubError(null)
+    setSubSuccess(null)
+
+    try {
+      const { error } = await supabase
+        .from('grades')
+        .delete()
+        .eq('id', gradeId)
+
+      if (error) throw error
+
+      setSubSuccess('ลบระดับชั้นเรียนเรียบร้อยแล้ว!')
+      onRefreshSettings()
+    } catch (err: any) {
+      console.error(err)
+      setSubError('เกิดข้อผิดพลาดในการลบระดับชั้น: ' + err.message)
+    }
+  }
 
   const fetchQuestions = async () => {
     try {
@@ -91,32 +218,55 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
         .select('*')
         .eq('grade_level', grade)
       
-      // Default fallbacks
-      setMathTimeLimit(15)
-      setMathQuestions(5)
-      setThaiTimeLimit(15)
-      setThaiQuestions(5)
-      setEnglishTimeLimit(15)
-      setEnglishQuestions(5)
-      
+      const initialMap: Record<string, { timeLimit: number; questionsPerGame: number }> = {}
+      subjects.forEach(sub => {
+        initialMap[sub.id] = { timeLimit: 15, questionsPerGame: 5 }
+      })
+
       if (!error && data) {
         data.forEach(item => {
-          if (item.subject === 'Mathematics') {
-            setMathTimeLimit(item.time_limit)
-            setMathQuestions(item.questions_per_game)
-          } else if (item.subject === 'Thai') {
-            setThaiTimeLimit(item.time_limit)
-            setThaiQuestions(item.questions_per_game)
-          } else if (item.subject === 'English') {
-            setEnglishTimeLimit(item.time_limit)
-            setEnglishQuestions(item.questions_per_game)
+          initialMap[item.subject] = {
+            timeLimit: item.time_limit,
+            questionsPerGame: item.questions_per_game
           }
         })
       }
+      setDynamicSettings(initialMap)
     } catch (e) {
       console.error(e)
     }
   }
+
+  // Auto reset selection states to safe dynamic values if current values are invalid
+  useEffect(() => {
+    if (subjects.length > 0) {
+      const isSubValid = subjects.some(s => s.id === selectedSubject)
+      if (!isSubValid) {
+        setSelectedSubject(subjects[0].id)
+      }
+      const isNewSubValid = subjects.some(s => s.id === newSubject)
+      if (!isNewSubValid) {
+        setNewSubject(subjects[0].id)
+      }
+    }
+  }, [subjects, selectedSubject, newSubject])
+
+  useEffect(() => {
+    if (grades.length > 0) {
+      const isGradeValid = grades.some(g => g.id === selectedGradeLevel)
+      if (!isGradeValid) {
+        setSelectedGradeLevel(grades[0].id)
+      }
+      const isNewGradeValid = grades.some(g => g.id === newGradeLevel)
+      if (!isNewGradeValid) {
+        setNewGradeLevel(grades[0].id)
+      }
+      const isSettingGradeValid = grades.some(g => g.id === settingsGradeLevel)
+      if (!isSettingGradeValid) {
+        setSettingsGradeLevel(grades[0].id)
+      }
+    }
+  }, [grades, selectedGradeLevel, newGradeLevel, settingsGradeLevel])
 
   useEffect(() => {
     fetchQuestions()
@@ -124,7 +274,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
 
   useEffect(() => {
     fetchSettings(settingsGradeLevel)
-  }, [settingsGradeLevel])
+  }, [settingsGradeLevel, subjects])
 
   // CSV import states & handlers
   const [csvError, setCsvError] = useState<string | null>(null)
@@ -406,11 +556,12 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
     e.preventDefault()
     setConfigSuccess(null)
     try {
-      const updates = [
-        { subject: 'Mathematics', grade_level: settingsGradeLevel, time_limit: mathTimeLimit, questions_per_game: mathQuestions },
-        { subject: 'Thai', grade_level: settingsGradeLevel, time_limit: thaiTimeLimit, questions_per_game: thaiQuestions },
-        { subject: 'English', grade_level: settingsGradeLevel, time_limit: englishTimeLimit, questions_per_game: englishQuestions }
-      ]
+      const updates = Object.entries(dynamicSettings).map(([subId, setting]) => ({
+        subject: subId,
+        grade_level: settingsGradeLevel,
+        time_limit: setting.timeLimit,
+        questions_per_game: setting.questionsPerGame
+      }))
 
       for (const update of updates) {
         const { error } = await supabase
@@ -421,8 +572,8 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
 
       setConfigSuccess(`อัปเดตการตั้งค่าระดับชั้น ${settingsGradeLevel} เรียบร้อยแล้ว!`)
       onRefreshSettings()
-    } catch (e) {
-      alert('เกิดข้อผิดพลาดในการบันทึกการตั้งค่า')
+    } catch (e: any) {
+      alert('เกิดข้อผิดพลาดในการบันทึกการตั้งค่า: ' + e.message)
     }
   }
 
@@ -466,7 +617,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 p-1 rounded-xl bg-white/5 border border-white/10 mb-6 w-fit select-none">
+      <div className="flex gap-2 p-1 rounded-xl bg-white/5 border border-white/10 mb-6 w-fit select-none flex-wrap">
         <button
           onClick={() => setActiveTab('questions')}
           className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 cursor-pointer ${
@@ -476,6 +627,16 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
           }`}
         >
           📝 จัดการคลังข้อสอบ
+        </button>
+        <button
+          onClick={() => setActiveTab('subjects_grades')}
+          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 cursor-pointer ${
+            activeTab === 'subjects_grades'
+              ? 'bg-red-500 text-white shadow-lg shadow-red-500/25'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+          }`}
+        >
+          📚 จัดการวิชาและชั้นเรียน
         </button>
         <button
           onClick={() => setActiveTab('settings')}
@@ -514,19 +675,19 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
                 <div className="flex gap-2">
                   <select
                     value={selectedSubject}
-                    onChange={(e) => setSelectedSubject(e.target.value as SubjectId)}
+                    onChange={(e) => setSelectedSubject(e.target.value)}
                     className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1 text-xs outline-none cursor-pointer"
                   >
-                    <option value="Mathematics">Mathematics (คณิตศาสตร์)</option>
-                    <option value="Thai">Thai (ภาษาไทย)</option>
-                    <option value="English">English (ภาษาอังกฤษ)</option>
+                    {subjects.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.nameEn})</option>
+                    ))}
                   </select>
                   <select
                     value={selectedGradeLevel}
                     onChange={(e) => setSelectedGradeLevel(e.target.value)}
                     className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1 text-xs outline-none cursor-pointer"
                   >
-                    {GRADE_LEVELS.map(g => (
+                    {grades.map(g => (
                       <option key={g.id} value={g.id}>{g.id}</option>
                     ))}
                   </select>
@@ -588,12 +749,12 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
                       <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">วิชา (Subject)</label>
                       <select
                         value={newSubject}
-                        onChange={(e) => setNewSubject(e.target.value as SubjectId)}
+                        onChange={(e) => setNewSubject(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
                       >
-                        <option value="Mathematics">คณิตศาสตร์</option>
-                        <option value="Thai">ภาษาไทย</option>
-                        <option value="English">ภาษาอังกฤษ</option>
+                        {subjects.map(s => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
                       </select>
                     </div>
                     <div>
@@ -603,7 +764,7 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
                         onChange={(e) => setNewGradeLevel(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
                       >
-                        {GRADE_LEVELS.map(g => (
+                        {grades.map(g => (
                           <option key={g.id} value={g.id}>{g.id}</option>
                         ))}
                       </select>
@@ -787,117 +948,61 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
                 onChange={(e) => setSettingsGradeLevel(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-2.5 text-xs outline-none cursor-pointer"
               >
-                {GRADE_LEVELS.map(g => (
+                {grades.map(g => (
                   <option key={g.id} value={g.id}>{g.label}</option>
                 ))}
               </select>
             </div>
 
             <form onSubmit={handleSaveSettings} className="space-y-6">
-              {/* Mathematics Row */}
-              <div className="p-4 bg-slate-950/40 border border-slate-850 rounded-xl">
-                <h4 className="font-bold text-xs text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                  📐 Mathematics (วิชาคณิตศาสตร์)
-                </h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] text-slate-400 font-bold mb-1">เวลานับถอยหลังต่อข้อ (วินาที)</label>
-                    <select
-                      value={mathTimeLimit}
-                      onChange={(e) => setMathTimeLimit(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-900 border border-slate-780 rounded-lg p-2.5 text-xs text-white"
-                    >
-                      <option value={15}>15 วินาที</option>
-                      <option value={30}>30 วินาที</option>
-                      <option value={60}>60 วินาที (1 นาที)</option>
-                    </select>
+              {subjects.map(sub => {
+                const setting = dynamicSettings[sub.id] || { timeLimit: 15, questionsPerGame: 5 }
+                return (
+                  <div key={sub.id} className="p-4 bg-slate-950/40 border border-slate-850 rounded-xl">
+                    <h4 className="font-bold text-xs text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <span className="text-base">{sub.icon}</span> {sub.name} (วิชา{sub.nameEn})
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">เวลานับถอยหลังต่อข้อ (วินาที)</label>
+                        <select
+                          value={setting.timeLimit}
+                          onChange={(e) => {
+                            setDynamicSettings(prev => ({
+                              ...prev,
+                              [sub.id]: { ...setting, timeLimit: parseInt(e.target.value, 10) }
+                            }))
+                          }}
+                          className="w-full bg-slate-900 border border-slate-780 rounded-lg p-2.5 text-xs text-white"
+                        >
+                          <option value={15}>15 วินาที</option>
+                          <option value={30}>30 วินาที</option>
+                          <option value={60}>60 วินาที (1 นาที)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">จำนวนข้อต่อหนึ่งเกม (คำถาม)</label>
+                        <select
+                          value={setting.questionsPerGame}
+                          onChange={(e) => {
+                            setDynamicSettings(prev => ({
+                              ...prev,
+                              [sub.id]: { ...setting, questionsPerGame: parseInt(e.target.value, 10) }
+                            }))
+                          }}
+                          className="w-full bg-slate-900 border border-slate-780 rounded-lg p-2.5 text-xs text-white"
+                        >
+                          <option value={5}>5 ข้อ</option>
+                          <option value={10}>10 ข้อ</option>
+                          <option value={20}>20 ข้อ</option>
+                          <option value={50}>50 ข้อ</option>
+                          <option value={100}>100 ข้อ</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 font-bold mb-1">จำนวนข้อต่อหนึ่งเกม (คำถาม)</label>
-                    <select
-                      value={mathQuestions}
-                      onChange={(e) => setMathQuestions(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-900 border border-slate-780 rounded-lg p-2.5 text-xs text-white"
-                    >
-                      <option value={5}>5 ข้อ</option>
-                      <option value={10}>10 ข้อ</option>
-                      <option value={20}>20 ข้อ</option>
-                      <option value={50}>50 ข้อ</option>
-                      <option value={100}>100 ข้อ</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Thai Row */}
-              <div className="p-4 bg-slate-950/40 border border-slate-850 rounded-xl">
-                <h4 className="font-bold text-xs text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                  🇹🇭 Thai (วิชาภาษาไทย)
-                </h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] text-slate-400 font-bold mb-1">เวลานับถอยหลังต่อข้อ (วินาที)</label>
-                    <select
-                      value={thaiTimeLimit}
-                      onChange={(e) => setThaiTimeLimit(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-900 border border-slate-780 rounded-lg p-2.5 text-xs text-white"
-                    >
-                      <option value={15}>15 วินาที</option>
-                      <option value={30}>30 วินาที</option>
-                      <option value={60}>60 วินาที (1 นาที)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 font-bold mb-1">จำนวนข้อต่อหนึ่งเกม (คำถาม)</label>
-                    <select
-                      value={thaiQuestions}
-                      onChange={(e) => setThaiQuestions(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-900 border border-slate-780 rounded-lg p-2.5 text-xs text-white"
-                    >
-                      <option value={5}>5 ข้อ</option>
-                      <option value={10}>10 ข้อ</option>
-                      <option value={20}>20 ข้อ</option>
-                      <option value={50}>50 ข้อ</option>
-                      <option value={100}>100 ข้อ</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* English Row */}
-              <div className="p-4 bg-slate-950/40 border border-slate-850 rounded-xl">
-                <h4 className="font-bold text-xs text-white uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                  🇬🇧 English (วิชาภาษาอังกฤษ)
-                </h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] text-slate-400 font-bold mb-1">เวลานับถอยหลังต่อข้อ (วินาที)</label>
-                    <select
-                      value={englishTimeLimit}
-                      onChange={(e) => setEnglishTimeLimit(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-900 border border-slate-780 rounded-lg p-2.5 text-xs text-white"
-                    >
-                      <option value={15}>15 วินาที</option>
-                      <option value={30}>30 วินาที</option>
-                      <option value={60}>60 วินาที (1 นาที)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 font-bold mb-1">จำนวนข้อต่อหนึ่งเกม (คำถาม)</label>
-                    <select
-                      value={englishQuestions}
-                      onChange={(e) => setEnglishQuestions(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-900 border border-slate-780 rounded-lg p-2.5 text-xs text-white"
-                    >
-                      <option value={5}>5 ข้อ</option>
-                      <option value={10}>10 ข้อ</option>
-                      <option value={20}>20 ข้อ</option>
-                      <option value={50}>50 ข้อ</option>
-                      <option value={100}>100 ข้อ</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
+                )
+              })}
 
               {configSuccess && (
                 <div className="p-3 bg-green-950/20 border border-green-900/30 text-green-400 text-xs rounded-xl flex items-center gap-2">
@@ -933,6 +1038,307 @@ export const AdminScreen: React.FC<AdminScreenProps> = ({ onGoHome, onRefreshSet
               {resetSuccess && (
                 <p className="text-xs text-green-400 mt-2 font-semibold text-center">{resetSuccess}</p>
               )}
+            </div>
+          </div>
+        ) : activeTab === 'subjects_grades' ? (
+          /* Manage Subjects & Grades Tab */
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start text-left">
+            {/* Left Column: Manage Subjects */}
+            <div className="glass-panel p-5 rounded-2xl border-slate-700/50 flex flex-col gap-5">
+              <h3 className="font-bold text-white flex items-center gap-2 pb-3 border-b border-slate-800 text-sm sm:text-base">
+                📚 จัดการรายชื่อวิชาและขอบเขตชั้นเรียน
+              </h3>
+
+              {subError && (
+                <div className="p-3 bg-red-950/20 border border-red-900/30 text-red-400 text-xs rounded-xl flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                  <span>{subError}</span>
+                </div>
+              )}
+
+              {subSuccess && (
+                <div className="p-3 bg-green-950/20 border border-green-900/30 text-green-400 text-xs rounded-xl flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-green-500 shrink-0" />
+                  <span>{subSuccess}</span>
+                </div>
+              )}
+
+              {/* Add Subject Form */}
+              <form onSubmit={handleAddSubject} className="space-y-4 bg-slate-950/20 p-4 rounded-xl border border-slate-850">
+                <h4 className="font-bold text-xs text-white uppercase tracking-wider mb-2">➕ เพิ่ม / อัปเดตข้อมูลวิชาเรียน</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">รหัสวิชาภาษาอังกฤษ (ID)*</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น Science, History"
+                      value={subFormId}
+                      onChange={(e) => setSubFormId(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">ชื่อภาษาไทย (TH Name)*</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น วิทยาศาสตร์"
+                      value={subFormName}
+                      onChange={(e) => setSubFormName(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">ชื่อภาษาอังกฤษ (EN Name)*</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น Science"
+                      value={subFormNameEn}
+                      onChange={(e) => setSubFormNameEn(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">ไอคอน Emoji*</label>
+                    <input
+                      type="text"
+                      placeholder="🔬"
+                      value={subFormIcon}
+                      onChange={(e) => setSubFormIcon(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white text-center outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">เฉดสีธีม (Tailwind CSS gradient)</label>
+                    <select
+                      value={subFormColor}
+                      onChange={(e) => setSubFormColor(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
+                    >
+                      <option value="from-blue-500 to-cyan-500">น้ำเงิน - ฟ้า (Mathematics)</option>
+                      <option value="from-orange-500 to-amber-500">ส้ม - เหลือง (Thai)</option>
+                      <option value="from-pink-500 to-rose-500">ชมพู - แดง (English)</option>
+                      <option value="from-green-500 to-emerald-500">เขียว - มรกต (Science)</option>
+                      <option value="from-purple-500 to-violet-500">ม่วง - ม่วงคราม (Social)</option>
+                      <option value="from-teal-500 to-cyan-600">เทอร์ควอยซ์ - ฟ้าเข้ม</option>
+                      <option value="from-red-500 to-orange-500">แดง - ส้ม</option>
+                      <option value="from-yellow-400 to-orange-500">เหลือง - ส้ม</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">สิทธิ์ระดับชั้นที่อนุญาตให้เล่น (Allowed Grades)*</label>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 bg-slate-950 p-3 rounded-lg border border-slate-850">
+                    {grades.map(g => {
+                      const isChecked = subFormAllowedGrades.includes(g.id)
+                      return (
+                        <label key={g.id} className="flex items-center gap-1.5 text-xs text-slate-350 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSubFormAllowedGrades(prev => [...prev, g.id])
+                              } else {
+                                setSubFormAllowedGrades(prev => prev.filter(id => id !== g.id))
+                              }
+                            }}
+                            className="rounded border-slate-800 bg-slate-950 text-red-500 focus:ring-red-500 w-3.5 h-3.5"
+                          />
+                          <span>{g.label}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">หมวดหมู่ของวิชา (Categories JSON)*</label>
+                  <textarea
+                    value={subFormCategories}
+                    onChange={(e) => setSubFormCategories(e.target.value)}
+                    rows={2}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white font-mono outline-none"
+                    placeholder='[{"id": "mixed", "label": "ผสมทุกหมวด", "labelEn": "Mixed"}]'
+                    required
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="isActive"
+                    checked={subFormIsActive}
+                    onChange={(e) => setSubFormIsActive(e.target.checked)}
+                    className="rounded border-slate-800 bg-slate-950 text-red-500 focus:ring-red-500 w-3.5 h-3.5"
+                  />
+                  <label htmlFor="isActive" className="text-xs text-slate-300 font-bold cursor-pointer select-none">เปิดใช้งานทันที (Active Status)</label>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  บันทึก / อัปเดตวิชาเรียน
+                </button>
+              </form>
+
+              {/* Subjects List */}
+              <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+                <h4 className="font-bold text-xs text-slate-400 uppercase tracking-wider text-left">รายการวิชาปัจจุบัน ({subjects.length} วิชา)</h4>
+                {subjects.map(sub => (
+                  <div key={sub.id} className="p-3 bg-slate-950/40 border border-slate-850 rounded-xl flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-lg">{sub.icon}</span>
+                        <span className="font-bold text-xs sm:text-sm text-white">{sub.name} ({sub.nameEn})</span>
+                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full ${
+                          sub.active ? 'bg-green-950 text-green-400 border border-green-900/55' : 'bg-slate-950 text-slate-500 border border-slate-900'
+                        }`}>
+                          {sub.active ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-normal mb-1 font-mono select-all">ID: {sub.id}</p>
+                      <p className="text-[10px] text-slate-450 leading-normal truncate">
+                        <strong>ระดับชั้นที่อนุญาต:</strong> {sub.allowed_grades && sub.allowed_grades.length > 0 ? sub.allowed_grades.join(', ') : 'ไม่มีสิทธิ์กำหนด'}
+                      </p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubFormId(sub.id)
+                          setSubFormName(sub.name)
+                          setSubFormNameEn(sub.nameEn)
+                          setSubFormIcon(sub.icon)
+                          setSubFormColor(sub.color)
+                          setSubFormCategories(JSON.stringify(sub.categories))
+                          setSubFormAllowedGrades(sub.allowed_grades || [])
+                          setSubFormIsActive(sub.active)
+                        }}
+                        className="p-1.5 rounded-lg bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer text-[10px] font-bold"
+                        title="แก้ไขวิชา"
+                      >
+                        แก้ไข
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSubject(sub.id)}
+                        className="p-1.5 rounded-lg bg-red-950/40 border border-red-900/30 flex items-center justify-center text-red-400 hover:bg-red-900/50 hover:text-white transition-all cursor-pointer"
+                        title="ลบวิชา"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Right Column: Manage Grade Levels */}
+            <div className="glass-panel p-5 rounded-2xl border-slate-700/50 flex flex-col gap-5">
+              <h3 className="font-bold text-white flex items-center gap-2 pb-3 border-b border-slate-800 text-sm sm:text-base">
+                🎓 จัดการระดับชั้นเรียนหลัก
+              </h3>
+
+              {/* Add Grade Form */}
+              <form onSubmit={handleAddGrade} className="space-y-4 bg-slate-950/20 p-4 rounded-xl border border-slate-850">
+                <h4 className="font-bold text-xs text-white uppercase tracking-wider mb-2">➕ เพิ่ม / อัปเดตข้อมูลระดับชั้นเรียน</h4>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">รหัสย่อ (ID)*</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น P7, M4"
+                      value={gradeFormId}
+                      onChange={(e) => setGradeFormId(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">ตัวย่อ (Label)*</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น ป.7, ม.4"
+                      value={gradeFormLabel}
+                      onChange={(e) => setGradeFormLabel(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">ชื่อเต็ม (Name)*</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น มัธยมศึกษาปีที่ 4"
+                      value={gradeFormName}
+                      onChange={(e) => setGradeFormName(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-white outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  บันทึกระดับชั้นเรียน
+                </button>
+              </form>
+
+              {/* Grades List */}
+              <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                <h4 className="font-bold text-xs text-slate-400 uppercase tracking-wider text-left">รายการระดับชั้นปัจจุบัน ({grades.length} ชั้นเรียน)</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {grades.map(g => (
+                    <div key={g.id} className="p-2.5 bg-slate-950/40 border border-slate-850 rounded-xl flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-xs text-white bg-slate-800 px-1.5 py-0.5 rounded">{g.label}</span>
+                          <span className="text-[10px] text-slate-400 truncate">{g.name}</span>
+                        </div>
+                        <span className="text-[8px] font-mono text-slate-600">ID: {g.id}</span>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGradeFormId(g.id)
+                            setGradeFormLabel(g.label)
+                            setGradeFormName(g.name)
+                          }}
+                          className="p-1 rounded bg-slate-850 hover:bg-slate-800 text-slate-350 hover:text-white transition-colors cursor-pointer text-[9px]"
+                          title="แก้ไขชั้นเรียน"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteGrade(g.id)}
+                          className="p-1 rounded bg-red-950/40 border border-red-900/30 text-red-400 hover:bg-red-900/50 hover:text-white transition-all cursor-pointer text-[9px]"
+                          title="ลบระดับชั้น"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         ) : (

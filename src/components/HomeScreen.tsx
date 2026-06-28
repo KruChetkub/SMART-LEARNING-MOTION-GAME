@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Play, BookOpen, HelpCircle, Sparkles, Volume2, VolumeX, Settings, X, LogIn } from 'lucide-react'
-import { motion } from 'framer-motion'
-import { subjectRegistry } from '../data/subjects'
-import type { SubjectId } from '../types/game'
+import { HelpCircle, Settings, X, LogIn } from 'lucide-react'
+import type { SubjectId, SubjectConfig, GradeLevel } from '../types/game'
 import { getSubjectCategories } from '../data/questions'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 
 interface HomeScreenProps {
+  subjects: SubjectConfig[]
+  grades: GradeLevel[]
   onStartGame: (
     subject: SubjectId,
     category: string,
@@ -24,24 +24,13 @@ interface HomeScreenProps {
   profile: any | null
   onLogin: () => void
   onLogout: () => void
+  onOpenAdmin?: () => void
+  onOpenLeaderboard?: () => void
 }
 
-const GRADE_LEVELS = [
-  { id: 'P1', label: 'ป.1', name: 'ประถมศึกษาปีที่ 1' },
-  { id: 'P2', label: 'ป.2', name: 'ประถมศึกษาปีที่ 2' },
-  { id: 'P3', label: 'ป.3', name: 'ประถมศึกษาปีที่ 3' },
-  { id: 'P4', label: 'ป.4', name: 'ประถมศึกษาปีที่ 4' },
-  { id: 'P5', label: 'ป.5', name: 'ประถมศึกษาปีที่ 5' },
-  { id: 'P6', label: 'ป.6', name: 'ประถมศึกษาปีที่ 6' },
-  { id: 'M1', label: 'ม.1', name: 'มัธยมศึกษาปีที่ 1' },
-  { id: 'M2', label: 'ม.2', name: 'มัธยมศึกษาปีที่ 2' },
-  { id: 'M3', label: 'ม.3', name: 'มัธยมศึกษาปีที่ 3' },
-  { id: 'M4', label: 'ม.4', name: 'มัธยมศึกษาปีที่ 4' },
-  { id: 'M5', label: 'ม.5', name: 'มัธยมศึกษาปีที่ 5' },
-  { id: 'M6', label: 'ม.6', name: 'มัธยมศึกษาปีที่ 6' }
-]
-
 export const HomeScreen: React.FC<HomeScreenProps> = ({
+  subjects,
+  grades,
   onStartGame,
   soundEnabled,
   onToggleSound,
@@ -54,7 +43,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   user,
   profile,
   onLogin,
-  onLogout
+  onLogout,
+  onOpenAdmin,
+  onOpenLeaderboard
 }) => {
   const [showHowTo, setShowHowTo] = useState(false)
   const [showCameraSettings, setShowCameraSettings] = useState(false)
@@ -62,6 +53,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [selectedGrade, setSelectedGrade] = useState<string>('P1')
   const [selectedCategory, setSelectedCategory] = useState('mixed')
   const [availableCategories, setAvailableCategories] = useState<{ id: string; label: string; labelEn: string }[]>([])
+
+  // Ensure selectedSubject is valid based on the dynamic subjects prop
+  useEffect(() => {
+    if (subjects.length > 0) {
+      const isStillValid = subjects.some(s => s.id === selectedSubject && s.active)
+      if (!isStillValid) {
+        const firstActive = subjects.find(s => s.active)
+        if (firstActive) {
+          setSelectedSubject(firstActive.id)
+        }
+      }
+    }
+  }, [subjects, selectedSubject])
+
+  // Ensure selectedGrade is within the allowed grades of the selected subject
+  useEffect(() => {
+    const activeSub = subjects.find(s => s.id === selectedSubject)
+    if (activeSub) {
+      const allowed = activeSub.allowed_grades || []
+      // If selected grade is not allowed, select the first allowed grade
+      if (allowed.length > 0 && !allowed.includes(selectedGrade)) {
+        if (!user && allowed.includes('P1')) {
+          setSelectedGrade('P1')
+        } else {
+          setSelectedGrade(allowed[0])
+        }
+      }
+    }
+  }, [selectedSubject, subjects, user])
 
   // Guest users are locked to grade P1
   useEffect(() => {
@@ -96,7 +116,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           if (!error && data && data.length > 0) {
             const onlineCatIds = Array.from(new Set(data.map(q => q.category)))
             
-            const config = subjectRegistry.find(s => s.id === selectedSubject)
+            const config = subjects.find(s => s.id === selectedSubject)
             const categoryMap = new Map(config?.categories.map(c => [c.id, c]) || [])
 
             const onlineCats = onlineCatIds.map(catId => {
@@ -198,7 +218,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   }, [showCameraSettings])
 
   // Get current subject config
-  const currentSubject = subjectRegistry.find(s => s.id === selectedSubject)
+  const currentSubject = subjects.find(s => s.id === selectedSubject)
 
   // Reset category when switching subjects
   const handleSubjectChange = (subjectId: SubjectId) => {
@@ -206,370 +226,593 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setSelectedCategory('mixed')
   }
 
-  // Category color palette per subject
-  const categoryColors: Record<SubjectId, { active: string; default: string }> = {
-    Mathematics: { active: 'bg-secondary text-white shadow-md', default: 'bg-slate-800/50 hover:bg-slate-800 text-slate-400' },
-    Thai: { active: 'bg-orange-500 text-white shadow-md', default: 'bg-slate-800/50 hover:bg-slate-800 text-slate-400' },
-    English: { active: 'bg-pink-500 text-white shadow-md', default: 'bg-slate-800/50 hover:bg-slate-800 text-slate-400' },
-    Science: { active: 'bg-emerald-500 text-white shadow-md', default: 'bg-slate-800/50 hover:bg-slate-800 text-slate-400' },
-    Social: { active: 'bg-violet-500 text-white shadow-md', default: 'bg-slate-800/50 hover:bg-slate-800 text-slate-400' },
+  const getSubjectGlowStyle = (subjectId: string) => {
+    switch (subjectId) {
+      case 'Mathematics':
+        return 'ring-2 ring-cyan-400/40 shadow-[0_0_12px_rgba(34,211,238,0.25)]'
+      case 'Thai':
+        return 'ring-2 ring-amber-400/40 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+      case 'English':
+        return 'ring-2 ring-rose-400/40 shadow-[0_0_12px_rgba(244,63,94,0.25)]'
+      case 'Science':
+        return 'ring-2 ring-emerald-400/40 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
+      case 'Social':
+        return 'ring-2 ring-violet-400/40 shadow-[0_0_12px_rgba(139,92,246,0.25)]'
+      default:
+        return 'ring-2 ring-primary/40 shadow-[0_0_12px_rgba(37,99,235,0.25)]'
+    }
   }
 
-  // Helper to calculate leveling thresholds
-  const getLevelFromExp = (totalExp: number) => {
-    let level = 1
-    let expNeeded = 1000
-    let accumulated = 0
-    
-    while (totalExp >= accumulated + expNeeded) {
-      accumulated += expNeeded
-      level += 1
-      expNeeded = level * 1000
+  // Category color palette per subject (dynamic fallback support)
+  const getCategoryColors = (subjectId: SubjectId) => {
+    const glows = getSubjectGlowStyle(subjectId)
+    const colors: Record<string, { active: string; default: string }> = {
+      Mathematics: { active: `bg-secondary text-white font-black ${glows} scale-[1.01]`, default: 'bg-slate-950/60 border border-slate-800 hover:bg-slate-900 text-slate-400 touch-target' },
+      Thai: { active: `bg-orange-500 text-white font-black ${glows} scale-[1.01]`, default: 'bg-slate-950/60 border border-slate-800 hover:bg-slate-900 text-slate-400 touch-target' },
+      English: { active: `bg-pink-500 text-white font-black ${glows} scale-[1.01]`, default: 'bg-slate-950/60 border border-slate-800 hover:bg-slate-900 text-slate-400 touch-target' },
+      Science: { active: `bg-emerald-500 text-white font-black ${glows} scale-[1.01]`, default: 'bg-slate-950/60 border border-slate-800 hover:bg-slate-900 text-slate-400 touch-target' },
+      Social: { active: `bg-violet-500 text-white font-black ${glows} scale-[1.01]`, default: 'bg-slate-950/60 border border-slate-800 hover:bg-slate-900 text-slate-400 touch-target' },
     }
-    
-    return {
-      level,
-      nextLevelExpThreshold: accumulated + expNeeded,
-      prevLevelExpThreshold: accumulated
-    }
+    return colors[subjectId] || { active: `bg-primary text-white font-black ${glows} scale-[1.01]`, default: 'bg-slate-950/60 border border-slate-800 hover:bg-slate-900 text-slate-400 touch-target' }
   }
 
   return (
-    <div className="w-full max-w-6xl mx-auto flex flex-col justify-between min-h-[85svh] px-4 py-6">
+    <div className="w-full max-w-6xl mx-auto flex flex-col justify-between min-h-[90svh] px-0 py-0">
       
-      {/* Header Title */}
-      <div className="w-full flex justify-center mb-6">
-        <motion.div 
-          animate={{ y: [0, -4, 0] }}
-          transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-          className="text-center relative w-full max-w-md"
-        >
-          <div className="absolute inset-0 bg-primary/20 rounded-3xl blur-2xl opacity-40 transform scale-125 -z-10" />
-          <div className="glass-panel px-6 py-4 rounded-2xl border-slate-700/50">
-            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-secondary flex items-center justify-center gap-1.5 mb-1">
-              <Sparkles className="w-3.5 h-3.5 text-warning animate-spin [animation-duration:8s]" />
-              Active Learning Arcade
-            </span>
-            <h1 className="font-display text-2xl sm:text-4xl font-extrabold tracking-tight text-white leading-none">
-              SMART LEARNING
-              <span className="block text-transparent bg-clip-text bg-gradient-to-r from-secondary to-accent mt-1.5">
-                MOTION GAME
-              </span>
-            </h1>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Split Grid Content */}
-      <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-[1fr_1.6fr] gap-6 md:gap-8 items-start my-2">
+      {/* ========================================================================= */}
+      {/* 🖥️ DESKTOP VIEW (Large screens, 1024px and up) */}
+      {/* ========================================================================= */}
+      <div className="hidden lg:flex flex-col gap-6 w-full px-0 py-0">
         
-        {/* Left Column: Action Buttons */}
-        <div className="w-full flex flex-col gap-4 max-w-md mx-auto md:max-w-none">
-          {/* User Profile Card */}
-          <div className="glass-panel p-4 rounded-2xl border-slate-700/50 mb-1 flex flex-col gap-3">
-            {user ? (
-              <>
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-3 w-full min-w-0">
-                    {profile?.avatar_url ? (
-                      <img src={profile.avatar_url} alt="Profile" className="w-10 h-10 rounded-full border border-secondary shrink-0" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-secondary/20 border border-secondary flex items-center justify-center font-bold text-white text-lg shrink-0">
-                        {profile?.display_name?.charAt(0) || 'U'}
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0 text-left">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block leading-none mb-0.5">ผู้เล่น</span>
-                      <span className="font-semibold text-sm text-white truncate block leading-tight">{profile?.display_name || user.email}</span>
-                      <span className="text-[9px] text-secondary font-semibold block leading-tight">{profile?.role === 'superadmin' ? 'Super Admin' : profile?.role === 'admin' ? 'Admin' : 'ผู้เล่นทั่วไป'}</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={onLogout}
-                    className="text-xs bg-slate-800 hover:bg-slate-750 text-slate-350 hover:text-white px-2.5 py-1.5 rounded-lg font-bold transition-colors cursor-pointer select-none"
-                  >
-                    ออก
-                  </button>
-                </div>
+        {/* Desktop Header */}
+        <div className="w-full flex justify-between items-start mb-6">
+          {/* Top Left: Logo Panel */}
+          <div className="cyber-logo-panel px-6 py-3 flex items-center">
+            <img src="/Smart Math Motion Logo46.svg" alt="Smart Learning Logo" className="h-9 w-auto object-contain" />
+          </div>
 
-                {/* Level & ROV Rank stats */}
-                <div className="pt-2.5 border-t border-slate-800 space-y-2 text-left">
-                  {/* EXP progress */}
-                  <div>
-                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 mb-1">
-                      <span>พลังงาน Lvl {profile?.level || 1}</span>
-                      <span>{(profile?.exp || 0)} EXP</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-900">
-                      {(() => {
-                        const currentExp = profile?.exp || 0
-                        const lvlInfo = getLevelFromExp(currentExp)
-                        const pct = ((currentExp - lvlInfo.prevLevelExpThreshold) / (lvlInfo.nextLevelExpThreshold - lvlInfo.prevLevelExpThreshold)) * 100
-                        return (
-                          <div 
-                            className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full" 
-                            style={{ width: `${Math.min(100, pct)}%` }}
-                          />
-                        )
-                      })()}
-                    </div>
-                  </div>
-
-                  {/* Rank Tier & Stars */}
-                  <div className="flex items-center justify-between py-1 bg-slate-950/40 px-2.5 rounded-xl border border-slate-900/50">
-                    <span className="text-[10px] font-bold text-slate-400">แร้งค์ปัจจุบัน:</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-black text-white">{profile?.rank_tier || 'Bronze III'}</span>
-                      <div className="flex gap-0.5 items-center">
-                        {(() => {
-                          const stars = profile?.rank_stars || 0
-                          const inPromotion = profile?.is_in_promotion || false
-                          if (inPromotion) {
-                            return <span className="text-[8px] font-black text-warning bg-warning/10 border border-warning/30 px-1.5 py-0.5 rounded animate-pulse">PROMO 🎯</span>
-                          }
-                          const starList = []
-                          for (let i = 0; i < 3; i++) {
-                            starList.push(
-                              <span key={i} className={`text-sm leading-none ${i < stars ? 'text-amber-400' : 'text-slate-700'}`}>
-                                ★
-                              </span>
-                            )
-                          }
-                          return starList
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Active Quest Notice */}
-                  {profile?.is_in_promotion && (
-                    <div className="bg-warning/5 border border-warning/15 rounded-xl p-2.5">
-                      <span className="text-[8px] font-black text-warning uppercase block tracking-wider mb-0.5">🎯 ภารกิจเลื่อนแร้งค์:</span>
-                      <p className="text-[9px] text-slate-350 leading-relaxed font-medium">
-                        {(() => {
-                          if (profile.rank_tier === 'Bronze I') return 'ตอบถูกติดต่อกัน 5 ข้อ (Combo 5x) ในเกมเดียว'
-                          if (profile.rank_tier === 'Silver I') return 'เล่นจบเกมโดยได้ความแม่นยำ 90% ขึ้นไป'
-                          if (profile.rank_tier === 'Gold I') return 'ทำคะแนนรวมให้ได้ 80 คะแนนขึ้นไป'
-                          if (profile.rank_tier === 'Platinum I') return 'ตอบถูก 100% เต็มในการเล่นแบบ 10 ข้อขึ้นไป'
-                          if (profile.rank_tier === 'Diamond I') return 'ทำคอมโบสูงสุด 10x และได้คะแนนรวม 95 คะแนนขึ้นไป'
-                          return ''
-                        })()}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col gap-2 w-full text-left">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">สมาชิกระบบ</span>
-                <p className="text-[11px] text-slate-400 leading-normal mb-1">ล็อกอินเพื่อบันทึกสถิติ คะแนนสูงสุด และตั้งค่ากล้องของคุณ!</p>
-                <button
-                  onClick={onLogin}
-                  className="w-full py-2.5 bg-gradient-to-r from-primary to-secondary hover:from-primary/95 hover:to-secondary/95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer shadow-md select-none border-transparent"
-                >
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>เข้าสู่ระบบ / สมัครสมาชิก</span>
-                </button>
-              </div>
+          {/* Top Right: Language Toggle & Leaderboard/Admin buttons (NO User role text) */}
+          <div className="flex items-center gap-3 pt-4 pr-4">
+            {profile && (profile.role === 'admin' || profile.role === 'superadmin') && onOpenAdmin && (
+              <button
+                onClick={onOpenAdmin}
+                className="text-xs bg-red-950/40 border border-red-900/30 text-red-400 px-4 py-2 rounded-full font-bold hover:bg-red-900/40 transition-colors flex items-center gap-1.5 cursor-pointer select-none"
+              >
+                🛠️ Admin Panel
+              </button>
             )}
-          </div>
-
-          <span className="text-xs font-bold text-slate-400 tracking-wider uppercase hidden md:block text-left mb-1">
-            แผงควบคุม (Control Panel)
-          </span>
-          
-          <div className="flex flex-col gap-1 w-full">
-            <button
-              onClick={() => onStartGame(selectedSubject, selectedCategory, selectedGrade)}
-              className="w-full py-4 sm:py-5 rounded-2xl bg-gradient-to-r from-primary via-blue-600 to-secondary hover:from-blue-600 hover:to-cyan-500 text-white font-display font-extrabold text-xl sm:text-2xl shadow-xl shadow-primary/25 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer"
-            >
-              <Play className="w-6 h-6 fill-white" />
-              เข้าสู่เกม (Play Game)
-            </button>
-            <span className="text-[10px] text-slate-400 font-semibold text-center mt-1">
-              {user 
-                ? `🟢 โหมดสมาชิก: เล่นโจทย์จริงตามการตั้งค่าจากแผง Admin` 
-                : `🟡 โหมดผู้เล่นทั่วไป (Demo): จำกัดการเล่นทดลองเพียง 3 ข้อเท่านั้น`
-              }
-            </span>
-          </div>
-
-          <button
-            onClick={() => setShowCameraSettings(true)}
-            className="w-full py-3.5 bg-slate-900/80 border border-slate-700/60 hover:bg-slate-800 text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer shadow-md"
-          >
-            <Settings className="w-4 h-4 text-secondary animate-pulse" />
-            ตั้งค่ากล้อง (Camera Settings)
-          </button>
-
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setShowHowTo(true)}
-              className="py-3 px-4 rounded-xl glass-panel-interactive text-slate-200 font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <BookOpen className="w-4 h-4 text-secondary" />
-              วิธีเล่น (How to Play)
-            </button>
-            <button
-              onClick={onToggleSound}
-              className="py-3 px-4 rounded-xl glass-panel-interactive text-slate-200 font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {soundEnabled ? (
-                <>
-                  <Volume2 className="w-4 h-4 text-accent" />
-                  <span>เปิดเสียง (Sound On)</span>
-                </>
-              ) : (
-                <>
-                  <VolumeX className="w-4 h-4 text-slate-500" />
-                  <span>ปิดเสียง (Sound Muted)</span>
-                </>
-              )}
+            {onOpenLeaderboard && (
+              <button
+                onClick={onOpenLeaderboard}
+                className="text-xs bg-cyan-950/40 border border-cyan-900/30 text-cyan-400 px-4 py-2 rounded-full font-bold hover:bg-cyan-900/40 transition-colors flex items-center gap-1.5 cursor-pointer select-none"
+              >
+                🏆 Leaderboard
+              </button>
+            )}
+            <button className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs tracking-wider transition-all shadow-[0_0_10px_rgba(6,182,212,0.35)] cursor-pointer select-none">
+              <span>🌐</span>
+              <span>ไทย / English</span>
             </button>
           </div>
         </div>
 
-        {/* Right Column: Subject Selector & Practice Mode */}
-        <div className="w-full flex flex-col gap-5 max-w-md mx-auto md:max-w-none">
-          {/* Selected Subject Display */}
-          <div className="w-full">
-            <label className="block text-xs font-bold text-slate-400 tracking-wider uppercase mb-3 text-center md:text-left">
-              เลือกวิชาเรียน (Select Subject)
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {subjectRegistry.map((sub) => (
+        {/* Title */}
+        <div className="w-full text-center flex flex-col items-center my-2 px-4">
+          <h2 className="font-display italic font-black text-2xl text-cyan-400/90 tracking-widest cyber-title-glow">
+            Smart Learning
+          </h2>
+          <div className="relative my-2">
+            <div className="absolute -inset-x-10 top-1/2 h-8 bg-cyan-500/10 blur-xl -translate-y-1/2 -z-10 rounded-full" />
+            <h1 className="font-display italic font-black text-5xl text-white tracking-widest leading-none drop-shadow-[0_0_15px_rgba(6,182,212,0.45)]">
+              Motion Game
+            </h1>
+          </div>
+          <span className="text-sm font-display italic font-bold tracking-widest text-cyan-400/80 uppercase cyber-subtitle-line pb-1">
+            Active Learning Arcade
+          </span>
+        </div>
+
+        {/* Subjects Grid (Full width row, 4 columns) */}
+        <div className="w-full mt-2 px-4">
+          <label className="block text-xs font-bold text-slate-400 tracking-wider uppercase mb-3 text-left">
+            เลือกวิชาเรียน (Select Subject)
+          </label>
+          <div className="grid grid-cols-4 gap-4">
+            {subjects.map((sub) => {
+              const isActive = sub.active
+              const isSelected = selectedSubject === sub.id
+              const glows = getSubjectGlowStyle(sub.id)
+              return (
                 <button
                   key={sub.id}
-                  disabled={!sub.active}
+                  disabled={!isActive}
                   onClick={() => handleSubjectChange(sub.id)}
-                  className={`w-full p-4 rounded-xl font-display font-bold text-xs sm:text-sm tracking-wide text-left flex items-center justify-between transition-all min-w-0 ${
-                    sub.active
-                      ? selectedSubject === sub.id
-                        ? 'bg-gradient-to-r ' + sub.color + ' text-white shadow-lg shadow-primary/20 scale-[1.01] border-transparent'
-                        : 'bg-slate-800/80 border border-slate-700/50 hover:bg-slate-750 text-slate-300 hover:translate-x-1'
-                      : 'bg-slate-900/40 border border-slate-800/30 text-slate-600 cursor-not-allowed'
+                  className={`w-full p-4.5 rounded-2xl font-display font-bold text-sm tracking-wide text-left flex items-center justify-between transition-all min-w-0 ${
+                    isActive
+                      ? isSelected
+                        ? 'bg-gradient-to-r ' + sub.color + ' text-white scale-[1.02] border-transparent ' + glows
+                        : 'bg-slate-950/60 border border-slate-800 hover:bg-slate-900 text-slate-350 hover:translate-y-[-1px] hover:border-slate-700/50'
+                      : 'bg-slate-950/20 border border-slate-900/30 text-slate-650 cursor-not-allowed opacity-50'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-base shrink-0">{sub.icon}</span>
-                    <span className="truncate">{sub.name} ({sub.nameEn})</span>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xl shrink-0">{sub.icon}</span>
+                    <span className="truncate text-sm font-black">{sub.name} ({sub.nameEn})</span>
                   </div>
-                  {sub.active ? (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/20 text-white uppercase font-black shrink-0">
+                  {isActive ? (
+                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-white/20 text-white uppercase font-black shrink-0">
                       Ready
                     </span>
                   ) : (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-950/60 text-slate-600 uppercase font-black shrink-0">
+                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-950/60 text-slate-600 uppercase font-black shrink-0">
                       Soon
                     </span>
                   )}
                 </button>
-              ))}
-            </div>
+              )
+            })}
           </div>
+        </div>
 
-          {/* Grade Level Selector */}
-          {currentSubject && currentSubject.active && (
-            <div className="w-full bg-slate-900/40 border border-slate-800/40 rounded-2xl p-4 text-left relative overflow-hidden">
-              <label className="block text-[10px] font-black text-slate-500 tracking-widest uppercase mb-3 text-center md:text-left">
-                เลือกระดับชั้นเรียน (Grade Level)
-              </label>
-              
-              <div className="space-y-3">
-                {/* Primary (ป.1 - ป.6) */}
-                <div>
-                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">ประถมศึกษา (Primary)</span>
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-xs">
-                    {GRADE_LEVELS.filter(g => g.id.startsWith('P')).map((g) => {
-                      // Guests can only see and choose P1
-                      if (!user && g.id !== 'P1') return null
-                      
-                      const colors = categoryColors[selectedSubject]
-                      return (
-                        <button
-                          key={g.id}
-                          onClick={() => setSelectedGrade(g.id)}
-                          className={`py-2 px-1 rounded-xl font-bold transition-all cursor-pointer text-center ${
-                            selectedGrade === g.id
-                              ? colors.active
-                              : colors.default
-                          }`}
-                        >
-                          {g.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Secondary (ม.1 - ม.6) — Hidden for guests */}
-                {user && (
-                  <div>
-                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">มัธยมศึกษา (Secondary)</span>
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-xs">
-                      {GRADE_LEVELS.filter(g => g.id.startsWith('M')).map((g) => {
-                        const colors = categoryColors[selectedSubject]
-                        return (
-                          <button
-                            key={g.id}
-                            onClick={() => setSelectedGrade(g.id)}
-                            className={`py-2 px-1 rounded-xl font-bold transition-all cursor-pointer text-center ${
-                              selectedGrade === g.id
-                                ? colors.active
-                                : colors.default
-                            }`}
-                          >
-                            {g.label}
-                          </button>
-                        )
-                      })}
+        {/* Bottom Split Row (Left: CTA/Profile, Right: Grades) */}
+        <div className="w-full grid grid-cols-[1fr_1.5fr] gap-8 items-start mt-4 px-4 pb-6">
+          
+          {/* Left Column: CTA & Profiles */}
+          <div className="flex flex-col gap-5">
+            {/* Profile Card */}
+            <div className="glass-panel p-5 rounded-2xl border-slate-800/80 flex flex-col gap-4 relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-cyan-500/30 to-blue-500/30" />
+              {user ? (
+                <>
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center gap-3 w-full min-w-0">
+                      {profile?.avatar_url ? (
+                        <img src={profile.avatar_url} alt="Profile" className="w-11 h-11 rounded-full border border-secondary shrink-0 shadow-md shadow-secondary/10" />
+                      ) : (
+                        <div className="w-11 h-11 rounded-full bg-secondary/20 border border-secondary flex items-center justify-center font-bold text-white text-lg shrink-0 shadow-md shadow-secondary/10">
+                          {profile?.display_name?.charAt(0) || 'U'}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0 text-left">
+                        <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block leading-none mb-1">ผู้เล่น</span>
+                        <span className="font-bold text-sm text-white truncate block leading-tight">{profile?.display_name || user.email}</span>
+                      </div>
                     </div>
+                    <button
+                      onClick={onLogout}
+                      className="text-xs bg-slate-900 border border-slate-800 hover:bg-slate-850 hover:text-white text-slate-400 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer"
+                    >
+                      ออก
+                    </button>
                   </div>
-                )}
-              </div>
-
-              {!user && (
-                <div className="mt-3 pt-3 border-t border-slate-800/60 text-center md:text-left">
-                  <span className="text-[10px] font-bold text-secondary tracking-wide">
-                    💡 ลงทะเบียน/เข้าสู่ระบบ เพื่อเล่นระดับชั้นเรียน ป.2 - ม.6
-                  </span>
+                </>
+              ) : (
+                <div className="flex flex-col gap-2 w-full text-left">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">สมาชิกระบบ</span>
+                  <p className="text-[11px] text-slate-450 leading-normal mb-1.5">ล็อกอินเพื่อบันทึกสถิติ คะแนนสูงสุด และตั้งค่ากล้องของคุณ!</p>
+                  <button
+                    onClick={onLogin}
+                    className="w-full py-3 bg-gradient-to-r from-primary to-secondary hover:from-primary/95 hover:to-secondary/95 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md border-transparent"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>เข้าสู่ระบบ / สมัครสมาชิก</span>
+                  </button>
                 </div>
               )}
             </div>
-          )}
 
-          {/* Dynamic Category Selector — shows for any active subject with categories */}
-          {currentSubject && currentSubject.active && availableCategories.length > 1 && (
-            <div className="w-full bg-slate-900/40 border border-slate-800/40 rounded-2xl p-4 text-left">
-              <label className="block text-[10px] font-black text-slate-500 tracking-widest uppercase mb-3 text-center md:text-left">
-                {currentSubject.id === 'Mathematics' ? 'โหมดฝึกซ้อม (Practice Mode)' : 'หมวดหมู่ (Category)'}
-              </label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {availableCategories.map((cat, index) => {
-                  const isLast = index === availableCategories.length - 1
-                  const isOdd = availableCategories.length % 2 !== 0
-                  const colors = categoryColors[selectedSubject]
-                  
-                  return (
-                    <button
-                      key={cat.id}
-                      onClick={() => setSelectedCategory(cat.id)}
-                      className={`py-2.5 px-3 rounded-xl font-bold transition-all cursor-pointer text-center ${
-                        isLast && isOdd ? 'col-span-2' : ''
-                      } ${
-                        selectedCategory === cat.id
-                          ? colors.active
-                          : colors.default
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  )
-                })}
-              </div>
+            {/* Play Button CTA */}
+            <div className="flex flex-col gap-1 w-full">
+              <button
+                onClick={() => onStartGame(selectedSubject, selectedCategory, selectedGrade)}
+                className="w-full py-4.5 rounded-2xl bg-gradient-to-r from-cyan-600 via-blue-600 to-purple-600 hover:from-cyan-500 hover:via-blue-500 hover:to-purple-500 text-white font-display font-extrabold text-xl sm:text-2xl shadow-[0_0_20px_rgba(6,182,212,0.35)] hover:shadow-[0_0_30px_rgba(6,182,212,0.55)] ring-2 ring-cyan-400/60 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer"
+              >
+                เข้าสู่เกม (Play Game)
+              </button>
             </div>
-          )}
+
+            {/* Camera settings */}
+            <button
+              onClick={() => setShowCameraSettings(true)}
+              className="w-full py-3.5 bg-slate-950/70 border border-slate-800/80 hover:bg-slate-900 text-white font-bold text-xs uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer shadow-md"
+            >
+              ⚙️ ตั้งค่ากล้อง (Camera Settings)
+            </button>
+
+            {/* Sound & How to play */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setShowHowTo(true)}
+                className="py-3 px-4 rounded-xl glass-panel-interactive text-slate-200 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                ❔ วิธีเล่น (How to Play)
+              </button>
+              <button
+                onClick={onToggleSound}
+                className="py-3 px-4 rounded-xl glass-panel-interactive text-slate-200 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {soundEnabled ? '🔊 เปิดเสียง (Sound On)' : '🔇 ปิดเสียง (Muted)'}
+              </button>
+            </div>
+          </div>
+
+          {/* Right Column: Grades and Categories */}
+          <div className="flex flex-col gap-6">
+            {/* Grade Selector */}
+            {currentSubject && currentSubject.active && (
+              <div className="w-full bg-slate-950/50 border border-slate-850 rounded-2xl p-5 text-left relative overflow-hidden shadow-lg">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-cyan-500/50 via-blue-500/50 to-purple-500/50" />
+                <label className="block text-xs font-black text-slate-400 tracking-wider uppercase mb-4">
+                  เลือกระดับชั้นเรียน (Grade Level)
+                </label>
+                
+                <div className="space-y-4">
+                  {/* Primary */}
+                  {grades.some(g => g.id.startsWith('P') && (currentSubject.allowed_grades || []).includes(g.id)) && (
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">ประถมศึกษา (Primary)</span>
+                      <div className="grid grid-cols-6 gap-2 text-xs">
+                        {grades.filter(g => g.id.startsWith('P') && (currentSubject.allowed_grades || []).includes(g.id)).map((g) => {
+                          if (!user && g.id !== 'P1') return null
+                          const colors = getCategoryColors(selectedSubject)
+                          return (
+                            <button
+                              key={g.id}
+                              onClick={() => setSelectedGrade(g.id)}
+                              className={`py-2.5 px-1 rounded-xl font-bold transition-all cursor-pointer text-center ${
+                                selectedGrade === g.id ? colors.active : colors.default
+                              }`}
+                            >
+                              {g.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Secondary */}
+                  {user && grades.some(g => g.id.startsWith('M') && (currentSubject.allowed_grades || []).includes(g.id)) && (
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">มัธยมศึกษา (Secondary)</span>
+                      <div className="grid grid-cols-6 gap-2 text-xs">
+                        {grades.filter(g => g.id.startsWith('M') && (currentSubject.allowed_grades || []).includes(g.id)).map((g) => {
+                          const colors = getCategoryColors(selectedSubject)
+                          return (
+                            <button
+                              key={g.id}
+                              onClick={() => setSelectedGrade(g.id)}
+                              className={`py-2.5 px-1 rounded-xl font-bold transition-all cursor-pointer text-center ${
+                                selectedGrade === g.id ? colors.active : colors.default
+                              }`}
+                            >
+                              {g.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Category Selector */}
+            {currentSubject && currentSubject.active && availableCategories.length > 1 && (
+              <div className="w-full bg-slate-950/50 border border-slate-850 rounded-2xl p-5 text-left relative overflow-hidden shadow-lg">
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-cyan-500/50 via-blue-500/50 to-purple-500/50" />
+                <label className="block text-xs font-black text-slate-400 tracking-wider uppercase mb-4">
+                  {currentSubject.id === 'Mathematics' ? 'โหมดฝึกซ้อม (Practice Mode)' : 'หมวดหมู่ (Category)'}
+                </label>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  {availableCategories.map((cat, index) => {
+                    const isLast = index === availableCategories.length - 1
+                    const isOdd = availableCategories.length % 2 !== 0
+                    const colors = getCategoryColors(selectedSubject)
+                    return (
+                      <button
+                        key={cat.id}
+                        onClick={() => setSelectedCategory(cat.id)}
+                        className={`py-3 px-3 rounded-xl font-bold transition-all cursor-pointer text-center ${
+                          isLast && isOdd ? 'col-span-2' : ''
+                        } ${selectedCategory === cat.id ? colors.active : colors.default}`}
+                      >
+                        {cat.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 📱 MOBILE VIEW (Tablet / Mobile screen, hidden on lg breakpoint) */}
+      {/* ========================================================================= */}
+      <div className="flex lg:hidden flex-col gap-5 w-full">
+        
+        {/* Mobile Header (NO User role text displayed in top-right) */}
+        <div className="w-full flex justify-between items-start mb-6">
+          {/* Top Left: Logo Panel */}
+          <div className="cyber-logo-panel px-6 py-3 flex items-center">
+            <img src="/Smart Math Motion Logo46.svg" alt="Smart Learning Logo" className="h-9 w-auto object-contain" />
+          </div>
+
+          {/* Top Right: Language Toggle Only */}
+          <div className="pt-4 pr-4">
+            <button className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-[9px] tracking-wider transition-all shadow-[0_0_10px_rgba(6,182,212,0.35)] select-none cursor-pointer">
+              <span>🌐</span>
+              <span>ไทย / English</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Game Title Display */}
+        <div className="w-full text-center flex flex-col items-center select-none px-4">
+          <h2 className="font-display italic font-black text-xl sm:text-2xl text-cyan-400/90 tracking-widest cyber-title-glow">
+            Smart Learning
+          </h2>
+          <div className="relative my-1">
+            <div className="absolute -inset-x-8 top-1/2 h-6 bg-cyan-500/10 blur-xl -translate-y-1/2 -z-10 rounded-full" />
+            <h1 className="font-display italic font-black text-3xl sm:text-4xl text-white tracking-widest leading-none drop-shadow-[0_0_12px_rgba(6,182,212,0.4)]">
+              Motion Game
+            </h1>
+          </div>
+          <span className="text-[10px] sm:text-xs font-display italic font-bold tracking-widest text-cyan-400/80 uppercase cyber-subtitle-line pb-0.5">
+            Active Learning Arcade
+          </span>
+        </div>
+
+        {/* User Profile / Status HUD (Only if logged in) */}
+        {user && (
+          <div className="w-full max-w-md mx-auto bg-slate-950/70 border border-slate-900/60 rounded-2xl p-3.5 flex flex-col gap-3 text-left shadow-md mx-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="Profile" className="w-8 h-8 rounded-full border border-cyan-450 shrink-0" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-cyan-950/40 border border-cyan-450 flex items-center justify-center font-bold text-white text-xs shrink-0">
+                    {profile?.display_name?.charAt(0) || 'U'}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 leading-none">
+                    <span className="font-bold text-xs text-white truncate block">{profile?.display_name || user.email}</span>
+                    <span className="text-[7px] bg-cyan-950 border border-cyan-900/50 text-cyan-400 font-extrabold px-1 rounded py-0.5">Lvl {profile?.level || 1}</span>
+                  </div>
+                  <span className="text-[9px] text-amber-450 font-semibold block mt-1">Rank: {profile?.rank_tier || 'Bronze III'}</span>
+                </div>
+              </div>
+              
+              <button
+                onClick={onLogout}
+                className="text-[8px] font-black uppercase text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-all cursor-pointer"
+              >
+                Sign Out
+              </button>
+            </div>
+
+            {/* Quick Actions inside Profile HUD: Admin Panel & Leaderboard */}
+            <div className="flex gap-2 w-full border-t border-slate-900/60 pt-2.5">
+              {profile && (profile.role === 'admin' || profile.role === 'superadmin') && onOpenAdmin && (
+                <button
+                  onClick={onOpenAdmin}
+                  className="flex-1 py-1.5 bg-red-950/40 border border-red-900/30 hover:bg-red-900/30 text-red-400 text-[10px] font-black uppercase rounded-lg transition-all text-center cursor-pointer select-none"
+                >
+                  ⚙️ Admin Panel
+                </button>
+              )}
+              {onOpenLeaderboard && (
+                <button
+                  onClick={onOpenLeaderboard}
+                  className="flex-1 py-1.5 bg-cyan-950/40 border border-cyan-900/30 hover:bg-cyan-900/30 text-cyan-400 text-[10px] font-black uppercase rounded-lg transition-all text-center cursor-pointer select-none"
+                >
+                  🏆 Leaderboard
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Guest Login Hint (Only if guest) */}
+        {!user && (
+          <div className="w-full max-w-md mx-auto flex gap-2 px-4">
+            <button
+              onClick={onLogin}
+              className="flex-[2] py-2 bg-slate-950/60 border border-slate-850 hover:border-cyan-400/50 hover:bg-slate-900 text-slate-350 font-bold text-[10px] rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            >
+              <LogIn className="w-3 h-3 text-cyan-400" />
+              <span>เข้าสู่ระบบเพื่อบันทึกประวัติ</span>
+            </button>
+            {onOpenLeaderboard && (
+              <button
+                onClick={onOpenLeaderboard}
+                className="flex-1 py-2 bg-cyan-950/40 border border-cyan-900/30 hover:bg-cyan-950/30 text-cyan-400 font-bold text-[10px] rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer select-none"
+              >
+                🏆 Leaderboard
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Subject Grid Selector (Mobile) */}
+        <div className="w-full max-w-md mx-auto px-4">
+          <div className="grid grid-cols-2 gap-3">
+            {subjects.map((sub) => {
+              const isActive = sub.active
+              const isSelected = selectedSubject === sub.id
+              return (
+                <button
+                  key={sub.id}
+                  disabled={!isActive}
+                  onClick={() => handleSubjectChange(sub.id)}
+                  className={`p-3 rounded-2xl flex items-center gap-2.5 transition-all text-left ${
+                    isActive
+                      ? isSelected
+                        ? 'cyber-subject-btn-active'
+                        : 'cyber-subject-btn'
+                      : 'bg-slate-950/20 border border-slate-900/30 text-slate-655 cursor-not-allowed opacity-40'
+                  }`}
+                >
+                  {/* Left Icon Square */}
+                  <div className={`w-9 h-9 rounded-xl bg-slate-950 border flex items-center justify-center text-lg shrink-0 transition-colors ${
+                    isSelected ? 'border-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.4)] text-cyan-400' : 'border-slate-800 text-slate-400'
+                  }`}>
+                    {sub.icon}
+                  </div>
+                  {/* Right Subject Labels */}
+                  <div className="min-w-0 flex-1">
+                    <span className="font-bold text-[11px] sm:text-xs text-white block leading-tight truncate">
+                      {sub.name}
+                    </span>
+                    <span className="text-[8px] text-slate-400 block leading-tight truncate mt-0.5">
+                      {sub.nameEn}
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Grade Levels Panel (Mobile) */}
+        {currentSubject && currentSubject.active && (
+          <div className="w-full max-w-md mx-auto cyber-grade-panel rounded-2xl p-4 mx-4">
+            <div className="space-y-3.5">
+              {/* Primary Grades Row */}
+              {grades.some(g => g.id.startsWith('P') && (currentSubject.allowed_grades || []).includes(g.id)) && (
+                <div className="grid grid-cols-6 gap-2 text-center">
+                  {grades.filter(g => g.id.startsWith('P') && (currentSubject.allowed_grades || []).includes(g.id)).map((g) => {
+                    if (!user && g.id !== 'P1') return null
+                    const isSelected = selectedGrade === g.id
+                    return (
+                      <button
+                        key={g.id}
+                        onClick={() => setSelectedGrade(g.id)}
+                        className={`py-2 px-1 rounded-lg text-[10px] font-black transition-all cursor-pointer text-center ${
+                          isSelected
+                            ? 'cyber-grade-btn-active'
+                            : 'cyber-grade-btn text-slate-450'
+                        }`}
+                      >
+                        {g.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Secondary Grades Row */}
+              {user && grades.some(g => g.id.startsWith('M') && (currentSubject.allowed_grades || []).includes(g.id)) && (
+                <div className="grid grid-cols-6 gap-2 text-center">
+                  {grades.filter(g => g.id.startsWith('M') && (currentSubject.allowed_grades || []).includes(g.id)).map((g) => {
+                    const isSelected = selectedGrade === g.id
+                    return (
+                      <button
+                        key={g.id}
+                        onClick={() => setSelectedGrade(g.id)}
+                        className={`py-2 px-1 rounded-lg text-[10px] font-black transition-all cursor-pointer text-center ${
+                          isSelected
+                            ? 'cyber-grade-btn-active'
+                            : 'cyber-grade-btn text-slate-450'
+                        }`}
+                      >
+                        {g.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Category Selector (Mobile) */}
+        {currentSubject && currentSubject.active && availableCategories.length > 1 && (
+          <div className="w-full max-w-md mx-auto bg-slate-950/40 border border-slate-900 rounded-2xl p-4 mx-4">
+            <label className="block text-[8px] font-black text-slate-455 tracking-widest uppercase mb-2.5 text-left">
+              {currentSubject.id === 'Mathematics' ? 'โหมดฝึกซ้อม (Practice Mode)' : 'หมวดหมู่ (Category)'}
+            </label>
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              {availableCategories.map((cat, index) => {
+                const isLast = index === availableCategories.length - 1
+                const isOdd = availableCategories.length % 2 !== 0
+                const colors = getCategoryColors(selectedSubject)
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    className={`py-2 px-3 rounded-xl font-bold transition-all cursor-pointer text-center ${
+                      isLast && isOdd ? 'col-span-2' : ''
+                    } ${selectedCategory === cat.id ? colors.active : colors.default}`}
+                  >
+                    {cat.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Play Game Button (Mobile) */}
+        <div className="w-full max-w-md mx-auto flex flex-col gap-1 items-center px-4">
+          <button
+            onClick={() => onStartGame(selectedSubject, selectedCategory, selectedGrade)}
+            className="w-full py-4 rounded-full cyber-play-btn text-white font-display font-extrabold text-xl sm:text-2xl uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-[0_0_20px_rgba(6,182,212,0.5)] hover:scale-[1.01] active:scale-[0.99]"
+          >
+            Play Game
+          </button>
+          <span className="text-[9px] text-slate-500 font-medium text-center mt-1">
+            {user 
+              ? `🟢 โหมดสมาชิก: เล่นโจทย์จริงตามการตั้งค่าจากแผง Admin` 
+              : `🟡 โหมดผู้เล่นทั่วไป (Demo): จำกัดการเล่นทดลองเพียง 3 ข้อเท่านั้น`
+            }
+          </span>
+        </div>
+
+        {/* Camera settings & switches (Mobile) */}
+        <div className="w-full max-w-md mx-auto flex items-center justify-between px-7 mt-1">
+          <button 
+            onClick={() => setShowCameraSettings(true)}
+            className="text-[9px] font-bold text-slate-450 hover:text-white uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1"
+          >
+            <span>⚙️</span> Camera Settings
+          </button>
+          
+          <div className="flex gap-4 items-center">
+            {/* Mirror Toggle */}
+            <div className="cyber-switch-container">
+              <div 
+                onClick={() => setMirrorHorizontal(!mirrorHorizontal)}
+                className={`cyber-switch-track ${mirrorHorizontal ? 'cyber-switch-track-active' : ''}`}
+              >
+                <div className={`cyber-switch-thumb ${mirrorHorizontal ? 'cyber-switch-thumb-active' : ''}`} />
+              </div>
+              <span className="cyber-switch-label">Mirror</span>
+            </div>
+
+            {/* Sound Toggle */}
+            <div className="cyber-switch-container">
+              <div 
+                onClick={onToggleSound}
+                className={`cyber-switch-track ${soundEnabled ? 'cyber-switch-track-active' : ''}`}
+              >
+                <div className={`cyber-switch-thumb ${soundEnabled ? 'cyber-switch-thumb-active' : ''}`} />
+              </div>
+              <span className="cyber-switch-label">Sound</span>
+            </div>
+          </div>
+        </div>
+
+        {/* How To Play Toggle link (Mobile) */}
+        <button
+          onClick={() => setShowHowTo(true)}
+          className="text-[9px] text-slate-500 hover:text-cyan-400 font-bold tracking-wider uppercase transition-colors cursor-pointer mb-2"
+        >
+          ❔ วิธีเล่น (How to Play)
+        </button>
 
       </div>
 

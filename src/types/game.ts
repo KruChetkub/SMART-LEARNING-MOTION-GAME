@@ -1,5 +1,5 @@
 // Subject definitions
-export type SubjectId = 'Mathematics' | 'Thai' | 'English' | 'Science' | 'Social'
+export type SubjectId = string
 
 export interface SubjectConfig {
   id: SubjectId
@@ -9,6 +9,13 @@ export interface SubjectConfig {
   color: string          // tailwind gradient classes
   categories: { id: string; label: string; labelEn: string }[]
   active: boolean
+  allowed_grades?: string[]
+}
+
+export interface GradeLevel {
+  id: string
+  label: string
+  name: string
 }
 
 export interface Question {

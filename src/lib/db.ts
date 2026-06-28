@@ -55,9 +55,9 @@ export const saveGameSession = async (stats: GameStats): Promise<HistoricalSessi
         console.log('Successfully saved session to Supabase!')
       }
 
-      // Also save to leaderboard
-      let playerName = 'ผู้เล่นทั่วไป'
+      // Also save to leaderboard (only for registered logged-in users)
       if (user) {
+        let playerName = 'ผู้เล่นทั่วไป'
         const { data: profileData } = await supabase
           .from('profiles')
           .select('display_name')
@@ -68,19 +68,19 @@ export const saveGameSession = async (stats: GameStats): Promise<HistoricalSessi
         } else if (user.email) {
           playerName = user.email.split('@')[0]
         }
-      }
 
-      const { error: leaderboardError } = await supabase
-        .from('leaderboard')
-        .insert({
-          user_id: user?.id || null,
-          player_name: playerName,
-          score: stats.totalScore,
-          accuracy: stats.accuracy
-        })
-      
-      if (leaderboardError) {
-        console.error('Supabase insert leaderboard error:', leaderboardError.message)
+        const { error: leaderboardError } = await supabase
+          .from('leaderboard')
+          .insert({
+            user_id: user.id,
+            player_name: playerName,
+            score: stats.totalScore,
+            accuracy: stats.accuracy
+          })
+        
+        if (leaderboardError) {
+          console.error('Supabase insert leaderboard error:', leaderboardError.message)
+        }
       }
     } catch (e) {
       console.error('Failed to save to Supabase:', e)
@@ -100,17 +100,27 @@ export const getLeaderboard = async (limit: number = 10): Promise<any[]> => {
     try {
       const { data, error } = await supabase
         .from('leaderboard')
-        .select('player_name, score, accuracy, played_at')
+        .select('user_id, player_name, score, accuracy, played_at, profiles!inner(role)')
+        .eq('profiles.role', 'user')
         .order('score', { ascending: false })
-        .limit(limit)
+        .limit(100)
 
       if (!error && data && data.length > 0) {
-        return data.map(item => ({
-          playerName: item.player_name,
-          score: item.score,
-          accuracy: item.accuracy,
-          playedAt: item.played_at
-        }))
+        const uniqueUsers = new Map<string, any>()
+        for (const item of data) {
+          if (item.user_id && !uniqueUsers.has(item.user_id)) {
+            uniqueUsers.set(item.user_id, item)
+          }
+        }
+
+        return Array.from(uniqueUsers.values())
+          .slice(0, limit)
+          .map(item => ({
+            playerName: item.player_name,
+            score: item.score,
+            accuracy: item.accuracy,
+            playedAt: item.played_at
+          }))
       }
     } catch (e) {
       console.warn('Failed to query Supabase leaderboard, falling back to local:', e)

@@ -3,8 +3,10 @@ import { HomeScreen } from './components/HomeScreen'
 import { GameScreen } from './components/GameScreen'
 import { AdminScreen } from './components/AdminScreen'
 import { AuthModal } from './components/AuthModal'
-import type { ScreenState, GameStats, AnswerRecord, SubjectId } from './types/game'
+import { PWAInstallPrompt } from './components/PWAInstallPrompt'
+import type { ScreenState, GameStats, AnswerRecord, SubjectId, GradeLevel } from './types/game'
 import { getSubjectQuestions } from './data/questions'
+import { subjectRegistry } from './data/subjects'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
 import { saveGameSession, getLeaderboard } from './lib/db'
 
@@ -151,43 +153,95 @@ function App() {
 
   const dbConnected = isSupabaseConfigured()
 
-  // Game settings from Supabase
-  const [gameSettings, setGameSettingsList] = useState<Record<SubjectId, { timeLimit: number; questionsPerGame: number }>>({
-    Mathematics: { timeLimit: 15, questionsPerGame: 5 },
-    Thai: { timeLimit: 15, questionsPerGame: 5 },
-    English: { timeLimit: 15, questionsPerGame: 5 },
-    Science: { timeLimit: 15, questionsPerGame: 5 },
-    Social: { timeLimit: 15, questionsPerGame: 5 }
-  })
+  // Dynamic subjects and grades lists with static fallbacks
+  const [subjects, setSubjects] = useState<any[]>(subjectRegistry)
+  const [grades, setGrades] = useState<GradeLevel[]>([
+    { id: 'P1', label: 'ป.1', name: 'ประถมศึกษาปีที่ 1' },
+    { id: 'P2', label: 'ป.2', name: 'ประถมศึกษาปีที่ 2' },
+    { id: 'P3', label: 'ป.3', name: 'ประถมศึกษาปีที่ 3' },
+    { id: 'P4', label: 'ป.4', name: 'ประถมศึกษาปีที่ 4' },
+    { id: 'P5', label: 'ป.5', name: 'ประถมศึกษาปีที่ 5' },
+    { id: 'P6', label: 'ป.6', name: 'ประถมศึกษาปีที่ 6' },
+    { id: 'M1', label: 'ม.1', name: 'มัธยมศึกษาปีที่ 1' },
+    { id: 'M2', label: 'ม.2', name: 'มัธยมศึกษาปีที่ 2' },
+    { id: 'M3', label: 'ม.3', name: 'มัธยมศึกษาปีที่ 3' },
+    { id: 'M4', label: 'ม.4', name: 'มัธยมศึกษาปีที่ 4' },
+    { id: 'M5', label: 'ม.5', name: 'มัธยมศึกษาปีที่ 5' },
+    { id: 'M6', label: 'ม.6', name: 'มัธยมศึกษาปีที่ 6' }
+  ])
 
-  const fetchGameSettings = async () => {
-    if (!dbConnected) return
+  // Game settings from Supabase
+  const [gameSettings, setGameSettingsList] = useState<Record<string, { timeLimit: number; questionsPerGame: number }>>({})
+
+  const fetchDynamicSubjectsAndGrades = async () => {
+    let currentSubjects = [...subjectRegistry]
+
+    if (dbConnected) {
+      try {
+        // Fetch subjects
+        const { data: dbSubjects, error: subError } = await supabase
+          .from('subjects')
+          .select('*')
+          .order('created_at', { ascending: true })
+
+        if (!subError && dbSubjects && dbSubjects.length > 0) {
+          currentSubjects = dbSubjects.map(sub => ({
+            id: sub.id,
+            name: sub.name,
+            nameEn: sub.name_en,
+            icon: sub.icon,
+            color: sub.color,
+            categories: typeof sub.categories === 'string' ? JSON.parse(sub.categories) : sub.categories,
+            active: sub.is_active,
+            allowed_grades: sub.allowed_grades
+          }))
+          setSubjects(currentSubjects)
+        }
+
+        // Fetch grades
+        const { data: dbGrades, error: gradeError } = await supabase
+          .from('grades')
+          .select('*')
+          .order('created_at', { ascending: true })
+
+        if (!gradeError && dbGrades && dbGrades.length > 0) {
+          setGrades(dbGrades)
+        }
+      } catch (e) {
+        console.error('Failed to fetch dynamic subjects/grades:', e)
+      }
+    }
+
+    // Fetch game settings and build initial keys map
     try {
-      const { data, error } = await supabase
-        .from('game_settings')
-        .select('subject, time_limit, questions_per_game')
-      
-      if (!error && data) {
-        const settingsMap = { ...gameSettings }
-        data.forEach(item => {
-          const sub = item.subject as SubjectId
-          if (settingsMap[sub]) {
-            settingsMap[sub] = {
+      const settingsMap: Record<string, { timeLimit: number; questionsPerGame: number }> = {}
+      currentSubjects.forEach(sub => {
+        settingsMap[sub.id] = { timeLimit: 15, questionsPerGame: 5 }
+      })
+
+      if (dbConnected) {
+        const { data, error } = await supabase
+          .from('game_settings')
+          .select('subject, time_limit, questions_per_game')
+        
+        if (!error && data) {
+          data.forEach(item => {
+            settingsMap[item.subject] = {
               timeLimit: item.time_limit,
               questionsPerGame: item.questions_per_game
             }
-          }
-        })
-        setGameSettingsList(settingsMap)
+          })
+        }
       }
+      setGameSettingsList(settingsMap)
     } catch (e) {
-      console.error('Failed to fetch game settings:', e)
+      console.error('Failed to build game settings mapping:', e)
     }
   }
 
   // Load configuration on boot
   useEffect(() => {
-    fetchGameSettings()
+    fetchDynamicSubjectsAndGrades()
   }, [dbConnected])
 
   // Auth states
@@ -578,12 +632,24 @@ function App() {
           console.log("[GameStart] Loaded database settings:", config)
         } else {
           console.warn("[GameStart] Settings not found or error, using default 5 questions. Error:", settingsError)
+          const cached = gameSettings[subject]
+          if (cached) {
+            config = cached
+          }
         }
       } catch (e) {
         console.error('Failed to fetch dynamic game settings, using defaults:', e)
+        const cached = gameSettings[subject]
+        if (cached) {
+          config = cached
+        }
       }
     } else {
-      console.log("[GameStart] DB not connected, using default 5 questions.")
+      console.log("[GameStart] DB not connected, using default or cached settings.")
+      const cached = gameSettings[subject]
+      if (cached) {
+        config = cached
+      }
     }
 
     setActiveTimeLimit(config.timeLimit)
@@ -840,18 +906,18 @@ function App() {
 
 
   return (
-    <div className="min-h-screen bg-slate-950 bg-radial-[circle_at_center,_var(--tw-gradient-stops)] from-slate-900 to-slate-950 flex flex-col items-center justify-between p-4 relative overflow-hidden">
+    <div className={`min-h-screen bg-slate-950 bg-radial-[circle_at_center,_var(--tw-gradient-stops)] from-slate-900 to-slate-950 flex flex-col items-center justify-between relative overflow-hidden ${screen === 'HOME' ? 'p-0' : 'p-4'}`}>
       
       {/* Background Decorative Glow Panels */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-primary/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-accent/10 rounded-full blur-3xl pointer-events-none" />
       
-      {/* Header element visible on Home/Result/Dashboard screens */}
-      {screen !== 'GAME' && (
+      {/* Header element visible on Result/Dashboard/Admin screens */}
+      {screen !== 'GAME' && screen !== 'HOME' && (
         <header className="w-full max-w-5xl flex justify-between items-center z-10 py-2">
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/20">
-              <span className="font-display font-extrabold text-white text-lg">M</span>
+            <div className="w-9 h-9 rounded-xl bg-slate-950 flex items-center justify-center shadow-lg shadow-primary/10 overflow-hidden border border-slate-800">
+              <img src="/Smart Math Motion Logo46.svg" alt="Logo" className="w-7 h-7 object-contain" />
             </div>
             <span className="font-display font-bold text-lg tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-300">
               SMART LEARNING
@@ -888,9 +954,11 @@ function App() {
       )}
 
       {/* Primary Routing State Machine */}
-      <div className="flex-1 w-full flex items-center justify-center z-10 relative">
+      <div className={`flex-1 w-full flex z-10 relative ${screen === 'HOME' ? 'items-start justify-center' : 'items-center justify-center'}`}>
         {screen === 'HOME' && (
           <HomeScreen
+            subjects={subjects}
+            grades={grades}
             onStartGame={handleStartGame}
             soundEnabled={soundEnabled}
             onToggleSound={() => updateSoundEnabled(!soundEnabled)}
@@ -904,6 +972,11 @@ function App() {
             profile={profile}
             onLogin={() => setAuthModalOpen(true)}
             onLogout={handleLogout}
+            onOpenAdmin={() => setScreen('ADMIN')}
+            onOpenLeaderboard={() => {
+              fetchLeaderboardData()
+              setLeaderboardOpen(true)
+            }}
           />
         )}
 
@@ -942,8 +1015,10 @@ function App() {
 
         {screen === 'ADMIN' && (
           <AdminScreen
+            subjects={subjects}
+            grades={grades}
             onGoHome={handleGoHome}
-            onRefreshSettings={fetchGameSettings}
+            onRefreshSettings={fetchDynamicSubjectsAndGrades}
           />
         )}
       </div>
@@ -995,7 +1070,6 @@ function App() {
                         <th className="text-left font-bold px-4 py-2.5">อันดับ</th>
                         <th className="text-left font-bold px-4 py-2.5">ชื่อผู้เล่น</th>
                         <th className="text-center font-bold px-4 py-2.5">คะแนนสูงสุด</th>
-                        <th className="text-center font-bold px-4 py-2.5">ความแม่นยำ</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1020,9 +1094,6 @@ function App() {
                               {item.score}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-center font-medium text-slate-400">
-                            {item.accuracy}%
-                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1040,6 +1111,9 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* PWA Install Prompt */}
+      <PWAInstallPrompt />
     </div>
   )
 }
