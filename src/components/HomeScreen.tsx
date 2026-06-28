@@ -63,6 +63,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [selectedCategory, setSelectedCategory] = useState('mixed')
   const [availableCategories, setAvailableCategories] = useState<{ id: string; label: string; labelEn: string }[]>([])
 
+  // Guest users are locked to grade P1
+  useEffect(() => {
+    if (!user) {
+      setSelectedGrade('P1')
+    }
+  }, [user])
+
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [webcamStatus, setWebcamStatus] = useState<'inactive' | 'loading' | 'active' | 'error'>('inactive')
@@ -71,8 +78,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     let active = true
 
     async function loadCategories() {
+      // Force guests to P1
+      const activeGrade = user ? selectedGrade : 'P1'
+      
       // Start with offline categories
-      const offlineCats = getSubjectCategories(selectedSubject, selectedGrade)
+      const offlineCats = getSubjectCategories(selectedSubject, activeGrade)
       let finalCats = [...offlineCats]
 
       if (isSupabaseConfigured()) {
@@ -81,7 +91,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             .from('questions')
             .select('category')
             .eq('subject', selectedSubject)
-            .eq('grade_level', selectedGrade)
+            .eq('grade_level', activeGrade)
           
           if (!error && data && data.length > 0) {
             const onlineCatIds = Array.from(new Set(data.map(q => q.category)))
@@ -106,6 +116,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         }
       }
 
+      // Restrict categories for guest users to only allowed ones
+      if (!user) {
+        if (selectedSubject === 'Mathematics') {
+          finalCats = finalCats.filter(c => c.id === 'mixed' || c.id === 'addition' || c.id === 'subtraction')
+        } else if (selectedSubject === 'Thai') {
+          finalCats = finalCats.filter(c => c.id === 'mixed' || c.id === 'vowels' || c.id === 'consonants' || c.id === 'reading' || c.id === 'vocabulary')
+        } else if (selectedSubject === 'English') {
+          finalCats = finalCats.filter(c => c.id === 'mixed' || c.id === 'vocabulary' || c.id === 'grammar' || c.id === 'spelling' || c.id === 'reading')
+        }
+      }
+
       if (active) {
         setAvailableCategories(finalCats)
         if (!finalCats.some(c => c.id === selectedCategory)) {
@@ -119,7 +140,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     return () => {
       active = false
     }
-  }, [selectedSubject, selectedGrade])
+  }, [selectedSubject, selectedGrade, user])
 
   useEffect(() => {
     let active = true
@@ -449,7 +470,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
           {/* Grade Level Selector */}
           {currentSubject && currentSubject.active && (
-            <div className="w-full bg-slate-900/40 border border-slate-800/40 rounded-2xl p-4 text-left">
+            <div className="w-full bg-slate-900/40 border border-slate-800/40 rounded-2xl p-4 text-left relative overflow-hidden">
               <label className="block text-[10px] font-black text-slate-500 tracking-widest uppercase mb-3 text-center md:text-left">
                 เลือกระดับชั้นเรียน (Grade Level)
               </label>
@@ -460,6 +481,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">ประถมศึกษา (Primary)</span>
                   <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-xs">
                     {GRADE_LEVELS.filter(g => g.id.startsWith('P')).map((g) => {
+                      // Guests can only see and choose P1
+                      if (!user && g.id !== 'P1') return null
+                      
                       const colors = categoryColors[selectedSubject]
                       return (
                         <button
@@ -478,29 +502,39 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   </div>
                 </div>
 
-                {/* Secondary (ม.1 - ม.6) */}
-                <div>
-                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">มัธยมศึกษา (Secondary)</span>
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-xs">
-                    {GRADE_LEVELS.filter(g => g.id.startsWith('M')).map((g) => {
-                      const colors = categoryColors[selectedSubject]
-                      return (
-                        <button
-                          key={g.id}
-                          onClick={() => setSelectedGrade(g.id)}
-                          className={`py-2 px-1 rounded-xl font-bold transition-all cursor-pointer text-center ${
-                            selectedGrade === g.id
-                              ? colors.active
-                              : colors.default
-                          }`}
-                        >
-                          {g.label}
-                        </button>
-                      )
-                    })}
+                {/* Secondary (ม.1 - ม.6) — Hidden for guests */}
+                {user && (
+                  <div>
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">มัธยมศึกษา (Secondary)</span>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-xs">
+                      {GRADE_LEVELS.filter(g => g.id.startsWith('M')).map((g) => {
+                        const colors = categoryColors[selectedSubject]
+                        return (
+                          <button
+                            key={g.id}
+                            onClick={() => setSelectedGrade(g.id)}
+                            className={`py-2 px-1 rounded-xl font-bold transition-all cursor-pointer text-center ${
+                              selectedGrade === g.id
+                                ? colors.active
+                                : colors.default
+                            }`}
+                          >
+                            {g.label}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
+
+              {!user && (
+                <div className="mt-3 pt-3 border-t border-slate-800/60 text-center md:text-left">
+                  <span className="text-[10px] font-bold text-secondary tracking-wide">
+                    💡 ลงทะเบียน/เข้าสู่ระบบ เพื่อเล่นระดับชั้นเรียน ป.2 - ม.6
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
