@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { HomeScreen } from './components/HomeScreen'
 import { GameScreen } from './components/GameScreen'
-import { ResultScreen } from './components/ResultScreen'
 import { AdminScreen } from './components/AdminScreen'
 import { AuthModal } from './components/AuthModal'
 import type { ScreenState, GameStats, AnswerRecord, SubjectId } from './types/game'
@@ -94,6 +93,7 @@ const getLevelFromExp = (totalExp: number) => {
 
 function App() {
   const [screen, setScreen] = useState<ScreenState>('HOME')
+  const gameScreenRef = useRef<any>(null)
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const [soundEnabled, setSoundEnabled] = useState(true)
   const [activeSubject, setActiveSubject] = useState<SubjectId>('Mathematics')
@@ -101,8 +101,7 @@ function App() {
   const [activeGradeLevel, setActiveGradeLevel] = useState<string>('P1')
   const [activeTimeLimit, setActiveTimeLimit] = useState<number>(15)
   const [activeQuestions, setActiveQuestions] = useState(getSubjectQuestions('Mathematics', 'mixed', 5))
-  const [gameKey, setGameKey] = useState(0) // Increment to force GameScreen re-mount on new game
-  
+
   // Camera settings state (lifted from GameScreen)
   const [cameraRotation, setCameraRotation] = useState(0)
   const [mirrorHorizontal, setMirrorHorizontal] = useState(false)
@@ -516,11 +515,7 @@ function App() {
     gradeLevel: string
   ) => {
     // Request fullscreen immediately on user gesture to avoid activation loss
-    if (document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(err => {
-        console.warn("Fullscreen request rejected:", err);
-      });
-    }
+    gameScreenRef.current?.requestFullscreen()
 
     // Always fetch the live session from Supabase — never rely on potentially stale React state
     const { data: { user: currentUser } } = await supabase.auth.getUser()
@@ -633,7 +628,6 @@ function App() {
 
     const processedQuestions = obfuscateAndShuffleQuestions(questionsList)
     setActiveQuestions(processedQuestions)
-    setGameKey(k => k + 1) // Force GameScreen to re-mount (resets currentIdx to 0)
     setStartTime(Date.now())
     setScreen('GAME')
   }
@@ -644,6 +638,7 @@ function App() {
       console.warn('[GameFinished] Called with empty records — ignoring to prevent crash')
       return
     }
+
     const durationSeconds = Math.round((Date.now() - startTime) / 1000)
     const correctCount = records.filter(r => r.isCorrect).length
     const wrongCount = records.length - correctCount
@@ -715,11 +710,7 @@ function App() {
 
   const handlePlayAgain = async () => {
     // Request fullscreen immediately on user gesture to avoid activation loss
-    if (document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(err => {
-        console.warn("Fullscreen request rejected:", err);
-      });
-    }
+    gameScreenRef.current?.requestFullscreen()
 
     // Always fetch the live session from Supabase
     const { data: { user: currentUser } } = await supabase.auth.getUser()
@@ -820,7 +811,6 @@ function App() {
 
     const processedQuestions = obfuscateAndShuffleQuestions(questionsList)
     setActiveQuestions(processedQuestions)
-    setGameKey(k => k + 1) // Force GameScreen to re-mount (resets currentIdx to 0)
     setStartTime(Date.now())
     setScreen('GAME')
   }
@@ -888,7 +878,7 @@ function App() {
       )}
 
       {/* Primary Routing State Machine */}
-      <div className="flex-1 w-full flex items-center justify-center z-10">
+      <div className="flex-1 w-full flex items-center justify-center z-10 relative">
         {screen === 'HOME' && (
           <HomeScreen
             onStartGame={handleStartGame}
@@ -907,9 +897,16 @@ function App() {
           />
         )}
 
-        {screen === 'GAME' && (
+        <div className={
+          screen === 'GAME'
+            ? 'w-full flex items-center justify-center'
+            : screen === 'RESULT'
+              ? 'absolute inset-0 w-full h-full z-0'
+              : 'hidden'
+        }>
           <GameScreen
-            key={gameKey}
+            ref={gameScreenRef}
+            isActive={screen === 'GAME' || screen === 'RESULT'}
             questions={activeQuestions}
             onGameFinished={handleGameFinished}
             soundEnabled={soundEnabled}
@@ -917,19 +914,21 @@ function App() {
             mirrorHorizontal={mirrorHorizontal}
             virtualCameraOutput={virtualCameraOutput}
             timeLimit={activeTimeLimit}
+            isResultScreen={screen === 'RESULT'}
+            resultScreenProps={
+              screen === 'RESULT'
+                ? {
+                    stats: gameStats,
+                    onPlayAgain: handlePlayAgain,
+                    onGoHome: handleGoHome,
+                    soundEnabled: soundEnabled,
+                    lastGameResult: lastGameResult,
+                    profile: profile
+                  }
+                : undefined
+            }
           />
-        )}
-
-        {screen === 'RESULT' && (
-          <ResultScreen
-            stats={gameStats}
-            onPlayAgain={handlePlayAgain}
-            onGoHome={handleGoHome}
-            soundEnabled={soundEnabled}
-            lastGameResult={lastGameResult}
-            profile={profile}
-          />
-        )}
+        </div>
 
         {screen === 'ADMIN' && (
           <AdminScreen

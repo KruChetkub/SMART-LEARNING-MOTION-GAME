@@ -128,3 +128,119 @@ body {
   }
 }
 
+/* Premium Question Card Transition (Slide in & Bounce) */
+@keyframes question-slide-in {
+  0% {
+    transform: translateY(40px) scale(0.92);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-5px) scale(1.03);
+    opacity: 0.9;
+  }
+  85% {
+    transform: translateY(2px) scale(0.98);
+    opacity: 0.98;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-question-card {
+  animation: question-slide-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Premium Choices Staggered Entry Animation */
+@keyframes choices-fade-in {
+  0% {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-choices-entry {
+  animation: choices-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Neon laser scanning border effect */
+@keyframes laser-sweep {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.question-card-glow {
+  position: relative;
+}
+
+.question-card-glow::after {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px; /* Border thickness */
+  background: linear-gradient(90deg, #06B6D4, #8B5CF6, #22C55E, #06B6D4);
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: laser-sweep 2.5s ease-in-out infinite;
+}
+
+/* Responsive adjustments for short heights (e.g. landscape mobile/tablet/laptops) */
+@media (max-height: 680px) {
+  /* Reduce choice buttons height */
+  [data-choice-idx] {
+    height: 4.5rem !important; /* ~72px */
+  }
+  
+  /* Adjust top position of choices to avoid HUD overlap and save vertical space */
+  .animate-choices-entry {
+    top: 5rem !important; /* ~80px */
+  }
+
+  /* Make the question panel more compact */
+  .animate-question-card {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+    max-width: 28rem !important;
+    bottom: 1rem !important;
+  }
+
+  /* Reduce font sizes inside question panel */
+  .animate-question-card span.font-display {
+    font-size: 1.75rem !important; /* smaller equation text */
+  }
+  
+  .animate-question-card h2 {
+    font-size: 1.25rem !important; /* smaller text for ordering/other categories */
+  }
+
+  /* Reduce dotted target box height */
+  .animate-question-card .border-dashed {
+    height: 4.5rem !important; /* ~72px */
+    min-width: 5.5rem !important;
+  }
+
+  /* Reduce HUD top spacing and padding */
+  .absolute.top-0.inset-x-0.z-20 {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+}
+
+
+

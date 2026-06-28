@@ -557,3 +557,11 @@ The experience must work smoothly across:
 * Mobile
 
 The UI should adapt without breaking the game flow, camera view, or answer selection.
+
+---
+
+# 23. Security & Repository Rules
+
+* **ห้ามบันทึกข้อมูลสำคัญของฐานข้อมูลขึ้นระบบ Git**: ห้าม Commit หรือ Push ข้อมูลเกี่ยวกับชื่อฐานข้อมูล, URL, API Keys, Passwords หรือข้อมูลเชื่อมต่อฐานข้อมูลใดๆ ขึ้น GitHub โดยเด็ดขาด
+* **การใช้งานไฟล์ชั่วคราวและการลบไฟล์ทดสอบ**: หากสร้างไฟล์สคริปต์หรือไฟล์คอนฟิกชั่วคราวเพื่อทำการทดสอบระบบ หรือใช้ AI ในการเขียนโค้ดและรันสคริปต์ทดสอบ (เช่น ไฟล์ตระกูล `check_*.js` หรือ `check_*.mjs`) จะต้องตรวจสอบกฎใน `.gitignore` และ**ทำการลบไฟล์เหล่านั้นทิ้งทันที**หลังจากเสร็จสิ้นการทดสอบ เพื่อป้องกันข้อมูลสำคัญรั่วไหล
+
