@@ -20,11 +20,23 @@ const obfuscateAndShuffleQuestions = (rawQuestions: any[]): any[] => {
   return rawQuestions.map(q => {
     const originalChoices = [...q.choices]
     const originalAnswerIndex = q.answerIndex !== undefined ? q.answerIndex : q.answer_index
-    const correctText = originalChoices[originalAnswerIndex]
     
+    if (originalAnswerIndex === undefined) {
+      // Online mode: answers are not fetched from DB for security, only choices are shuffled
+      const shuffledChoices = [...originalChoices].sort(() => 0.5 - Math.random())
+      return {
+        id: q.id,
+        subject: q.subject,
+        category: q.category,
+        equation: q.equation,
+        choices: shuffledChoices
+      }
+    }
+    
+    // Offline / fallback mode: answers are present locally and hashed for basic protection
+    const correctText = originalChoices[originalAnswerIndex]
     const salt = Math.random().toString(36).substring(2, 7)
     const correctHash = djb2Hash(correctText + salt)
-    
     const shuffledChoices = [...originalChoices].sort(() => 0.5 - Math.random())
     
     return {
@@ -579,10 +591,10 @@ function App() {
     let questionsList: any[] = []
     if (currentUser && dbConnected) {
       try {
-        console.log(`[GameStart] Fetching questions from DB: subject=${subject}, grade=${gradeLevel}, category=${category}`)
+        console.log(`[GameStart] Fetching questions from DB (secure view): subject=${subject}, grade=${gradeLevel}, category=${category}`)
         let query = supabase
-          .from('questions')
-          .select('*')
+          .from('game_questions')
+          .select('id, subject, category, equation, choices')
           .eq('subject', subject)
           .eq('grade_level', gradeLevel)
 
@@ -598,8 +610,7 @@ function App() {
             subject: q.subject as SubjectId,
             category: q.category,
             equation: q.equation,
-            choices: q.choices,
-            answerIndex: q.answer_index
+            choices: q.choices
           }))
           questionsList = [...questionsList].sort(() => 0.5 - Math.random())
           console.log(`[GameStart] DB returned ${questionsList.length} questions.`)
@@ -764,8 +775,8 @@ function App() {
     if (currentUser && dbConnected) {
       try {
         let query = supabase
-          .from('questions')
-          .select('*')
+          .from('game_questions')
+          .select('id, subject, category, equation, choices')
           .eq('subject', activeSubject)
           .eq('grade_level', activeGradeLevel)
 
@@ -781,8 +792,7 @@ function App() {
             subject: q.subject as SubjectId,
             category: q.category,
             equation: q.equation,
-            choices: q.choices,
-            answerIndex: q.answer_index
+            choices: q.choices
           }))
           questionsList = [...questionsList].sort(() => 0.5 - Math.random())
           console.log(`[PlayAgain] DB returned ${questionsList.length} questions.`)

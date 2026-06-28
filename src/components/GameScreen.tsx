@@ -4,6 +4,7 @@ import type { Question, AnswerRecord } from '../types/game'
 import { useMediaPipe } from '../hooks/useMediaPipe'
 import { playCorrectSound, playWrongSound, playTickSound } from '../lib/audio'
 import { ResultScreen } from './ResultScreen'
+import { supabase } from '../lib/supabase'
 
 const djb2Hash = (str: string): number => {
   let hash = 5381
@@ -114,7 +115,12 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
   const hoveredGoHome = hoverState.goHome
 
   // Feedback states
-  const [feedback, setFeedback] = useState<{ type: 'correct' | 'incorrect'; index: number; questionIdx: number } | null>(null)
+  const [feedback, setFeedback] = useState<{ 
+    type: 'correct' | 'incorrect'; 
+    index: number; 
+    questionIdx: number; 
+    correctText?: string 
+  } | null>(null)
   const activeFeedback = feedback && feedback.questionIdx === currentIdx ? feedback : null
   const [comboPop, setComboPop] = useState(false)
   const [speedPop, setSpeedPop] = useState(false)
@@ -574,7 +580,7 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
     return () => clearInterval(timer)
   }, [currentIdx, gameState, isResultScreen, timeLimit])  // isResultScreen stops the timer immediately on game end
 
-  const handleSelectAnswer = (choiceIdx: number) => {
+  const handleSelectAnswer = async (choiceIdx: number) => {
     if (activeFeedback !== null) return         // already showing feedback
     if (!activeQuestion) return           // safety
     if (questionAnsweredRef.current) return  // timer already fired — prevent double-call
@@ -582,13 +588,61 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
 
     const now = Date.now()
     const elapsedSeconds = choiceIdx === -1 ? timeLimit : (now - questionStartTime) / 1000
+    
     let isCorrect = false
+    let correctAnswerText = ''
+
     if (choiceIdx !== -1) {
+      // Offline mode (hashed choices locally)
       if (activeQuestion.correctHash !== undefined && activeQuestion.salt !== undefined) {
         const hash = djb2Hash(activeQuestion.choices[choiceIdx] + activeQuestion.salt)
         isCorrect = (hash === activeQuestion.correctHash)
+        const correctIdx = activeQuestion.choices.findIndex(choice => 
+          djb2Hash(choice + activeQuestion.salt) === activeQuestion.correctHash
+        )
+        if (correctIdx !== -1) {
+          correctAnswerText = activeQuestion.choices[correctIdx]
+        }
+      } 
+      // Online mode (verify answer securely on server via RPC view bypass)
+      else {
+        try {
+          const selectedText = activeQuestion.choices[choiceIdx]
+          const { data, error } = await supabase.rpc('verify_and_reveal_answer', {
+            question_id: activeQuestion.id,
+            selected_choice_text: selectedText
+          })
+          if (!error && data) {
+            isCorrect = data.is_correct
+            correctAnswerText = data.correct_choice_text
+          } else {
+            console.error('verify_and_reveal_answer failed:', error)
+          }
+        } catch (e) {
+          console.error('verify_and_reveal_answer call error:', e)
+        }
+      }
+    } else {
+      // Timeout case: we still want to reveal correct answer index to highlight green
+      if (activeQuestion.correctHash !== undefined && activeQuestion.salt !== undefined) {
+        const correctIdx = activeQuestion.choices.findIndex(choice => 
+          djb2Hash(choice + activeQuestion.salt) === activeQuestion.correctHash
+        )
+        if (correctIdx !== -1) {
+          correctAnswerText = activeQuestion.choices[correctIdx]
+        }
       } else {
-        isCorrect = (choiceIdx === activeQuestion.answerIndex)
+        try {
+          const { data, error } = await supabase.rpc('verify_and_reveal_answer', {
+            question_id: activeQuestion.id,
+            selected_choice_text: ''
+          })
+          if (!error && data) {
+            correctAnswerText = data.correct_choice_text
+          }
+        } catch (e) {
+          // ignore
+        }
       }
     }
 
@@ -625,7 +679,8 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
     setFeedback({
       type: isCorrect ? 'correct' : 'incorrect',
       index: choiceIdx,
-      questionIdx: currentIdx
+      questionIdx: currentIdx,
+      correctText: correctAnswerText
     })
     
     if (isCorrect) {
@@ -643,19 +698,6 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
       playCorrectSound(soundEnabled)
     } else {
       playWrongSound(soundEnabled)
-    }
-
-    // Determine correct answer text securely
-    let correctAnswerText = ''
-    if (activeQuestion.correctHash !== undefined && activeQuestion.salt !== undefined) {
-      const foundIdx = activeQuestion.choices.findIndex(choice => 
-        djb2Hash(choice + activeQuestion.salt) === activeQuestion.correctHash
-      )
-      if (foundIdx !== -1) {
-        correctAnswerText = activeQuestion.choices[foundIdx]
-      }
-    } else if (activeQuestion.answerIndex !== undefined) {
-      correctAnswerText = activeQuestion.choices[activeQuestion.answerIndex]
     }
 
     // Record answer history
@@ -693,6 +735,13 @@ export const GameScreen = forwardRef<GameScreenRef, GameScreenProps>(({
 
   const getCorrectAnswerIndex = () => {
     if (!activeQuestion) return -1
+    
+    // Online mode: look up index of correctText returned by Supabase verification RPC
+    if (activeFeedback && activeFeedback.correctText) {
+      return activeQuestion.choices.indexOf(activeFeedback.correctText)
+    }
+    
+    // Offline mode: calculate from local hash & salt
     if (activeQuestion.correctHash !== undefined && activeQuestion.salt !== undefined) {
       return activeQuestion.choices.findIndex(choice => 
         djb2Hash(choice + activeQuestion.salt) === activeQuestion.correctHash
