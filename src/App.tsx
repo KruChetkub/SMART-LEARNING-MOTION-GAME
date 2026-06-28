@@ -515,6 +515,13 @@ function App() {
     category: string,
     gradeLevel: string
   ) => {
+    // Request fullscreen immediately on user gesture to avoid activation loss
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.warn("Fullscreen request rejected:", err);
+      });
+    }
+
     // Always fetch the live session from Supabase — never rely on potentially stale React state
     const { data: { user: currentUser } } = await supabase.auth.getUser()
     console.log(`[GameStart] Subject: ${subject}, Category: ${category}, Grade: ${gradeLevel}`)
@@ -707,6 +714,13 @@ function App() {
   }
 
   const handlePlayAgain = async () => {
+    // Request fullscreen immediately on user gesture to avoid activation loss
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.warn("Fullscreen request rejected:", err);
+      });
+    }
+
     // Always fetch the live session from Supabase
     const { data: { user: currentUser } } = await supabase.auth.getUser()
     console.log(`[PlayAgain] Subject: ${activeSubject}, Category: ${activeCategory}, Grade: ${activeGradeLevel}`)
@@ -812,6 +826,12 @@ function App() {
   }
 
   const handleGoHome = () => {
+    // Exit fullscreen if active
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(err => {
+        console.warn("Exit fullscreen failed:", err);
+      });
+    }
     if (user) {
       fetchProfile(user.id)
     }
